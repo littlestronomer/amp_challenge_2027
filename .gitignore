@@ -8,3 +8,35 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Generation outputs (produced by `uv run generate`)
+generate/
+generate_*/
+
+# Raw downloaded data and processed caches
+data/raw/
+data/processed/
+data/cache/
+
+# Trained model checkpoints (large; release via HF Hub / git-lfs)
+checkpoint/generator/
+checkpoint/reward/
+checkpoint/**/*.pt
+checkpoint/**/*.bin
+checkpoint/**/*.safetensors
+*.ckpt
+
+# Eval artifacts
+eval/
+runs/
+wandb/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Reference papers (kept locally, not committed — copyrighted)
+*.pdf
+!AMPChallenge_NeurIPSCompetition.pdf
+
+# Profiling artifacts
+profiling/

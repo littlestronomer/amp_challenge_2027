@@ -1,9 +1,9 @@
-from pathlib import Path
-import subprocess
 import argparse
 import os
-import sys
 import shutil
+import subprocess
+import sys
+from pathlib import Path
 
 import Levenshtein
 

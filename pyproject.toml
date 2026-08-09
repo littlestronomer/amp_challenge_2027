@@ -1,13 +1,13 @@
 [project]
 name = "amp-challenge-2027"
 version = "0.1.0"
-description = "Minimal example repository"
+description = "Autoregressive generative model for antimicrobial peptide design (AMP Challenge 2027)"
 readme = "README.md"
 authors = [
     { name = "your name", email = "username@domain.com" }
 ]
 
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "levenshtein>=0.27.3",
     "numpy>=2.2.6",
@@ -16,6 +16,63 @@ dependencies = [
 [project.scripts]
 generate = "amp_challenge_2027.generate:main"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+# Heavy ML dependencies are optional so the validator only installs the light
+# runtime. Install for training/inference with: uv sync --extra ml
+[project.optional-dependencies]
+ml = [
+    "torch>=2.5",
+    "transformers>=4.46",
+    "peft>=0.13",
+    "accelerate>=1.0",
+    "datasets>=3.0",
+    "biopython>=1.84",
+    "huggingface-hub>=0.26",
+    "scipy>=1.13",
+    "pandas>=2.2",
+    "pyarrow>=17.0",
+    "wandb>=0.18",
+]
+seqme = [
+    "seqme[esm2]>=0.1",
+]
+
+# Blackwell GPUs (RTX 50-series, compute capability 12.0) need torch built
+# against CUDA 12.8+. The standard PyPI torch wheel targets older CUDA and
+# will fail with "no kernel image available for execution on the device."
+# Use: uv sync --extra ml --index-strategy unsafe-best-match
+# (the tool.uv sources below point uv at the cu128 wheel index).
+[tool.uv]
+# Prefer the cu128 index for torch wheels (Blackwell/sm_120 support).
+# Fallback to PyPI for everything else.
+default-groups = ["dev"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128" }]
+torchvision = [{ index = "pytorch-cu128" }]
+
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
