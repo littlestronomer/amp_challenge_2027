@@ -49,9 +49,9 @@ def main() -> None:
         )
         sys.exit(1)
 
-    generated = {f"seq{i}": s for i, s in enumerate(load_fasta(args.library), start=1)}
+    generated_seqs = load_fasta(args.library)
     reference = load_fasta(args.reference)
-    print(f"[eval] generated: {len(generated)} sequences")
+    print(f"[eval] generated: {len(generated_seqs)} sequences")
     print(f"[eval] reference: {len(reference)} sequences")
 
     # Embedder for distributional metrics (FBD, MMD, precision/recall).
@@ -61,8 +61,8 @@ def main() -> None:
     metrics = [
         sm.metrics.Uniqueness(),
         sm.metrics.Novelty(reference=reference),
-        # Internal diversity and length stats are cheap and informative.
         sm.metrics.Length(),
+        sm.metrics.Diversity(),
     ]
     # Distributional metrics — add if the seqme version exposes them.
     for name in ("FBD", "MMD", "PrecisionRecall", "ConformityScore"):
@@ -80,7 +80,9 @@ def main() -> None:
             print(f"[eval] skip {name}: {e}")
 
     print(f"[eval] computing {len(metrics)} metrics...")
-    df = sm.evaluate(generated, metrics)
+    # seqme expects {group_name: [sequences]}; we score the whole library as one group.
+    groups = {"library": generated_seqs}
+    df = sm.evaluate(groups, metrics)
     print("\n=== seqme results ===")
     print(df.to_string())
 

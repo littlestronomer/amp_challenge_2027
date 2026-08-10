@@ -75,7 +75,9 @@ def _torch_available() -> bool:
 
 
 def generate_with_model(
-    n_sequences: int, *, seed: int, length: int, device: str, checkpoint_dir: Path
+    n_sequences: int, *, seed: int, length: int, device: str, checkpoint_dir: Path,
+    temperature: float = 1.0, top_k: int = 50, top_p: float = 0.9,
+    repetition_penalty: float = 1.2,
 ) -> list[str]:
     """Sample from the trained custom generator. Requires the [ml] extra."""
     import torch
@@ -89,7 +91,8 @@ def generate_with_model(
     sequences = sample_sequences(
         model,
         n_sequences=n_sequences, device=device, max_length=length, generator=g,
-        temperature=1.0, top_k=50, top_p=0.9,
+        temperature=temperature, top_k=top_k, top_p=top_p,
+        repetition_penalty=repetition_penalty,
     )
     return sequences
 
@@ -150,6 +153,13 @@ def main() -> None:
         default=GENERATOR_DIR,
         help="trained generator checkpoint directory (default: checkpoint/generator)",
     )
+    parser.add_argument("--temperature", type=float, default=1.0, help="sampling temperature")
+    parser.add_argument("--sample-top-k", type=int, default=50, help="top-k sampling (0 to disable)")
+    parser.add_argument("--top-p", type=float, default=0.9, help="nucleus sampling (0 to disable)")
+    parser.add_argument(
+        "--repetition-penalty", type=float, default=1.2,
+        help="penalize repeated residues (>1.0, 1.0 to disable)",
+    )
     args = parser.parse_args()
 
     np.random.seed(args.seed)  # belt-and-suspenders for any global-RNG callers
@@ -170,6 +180,10 @@ def main() -> None:
                 length=args.length,
                 device=args.device,
                 checkpoint_dir=args.checkpoint,
+                temperature=args.temperature,
+                top_k=args.sample_top_k,
+                top_p=args.top_p,
+                repetition_penalty=args.repetition_penalty,
             )
         except Exception as e:
             print(f"[generate] model inference failed ({e}); falling back to seeded sampler")

@@ -190,28 +190,46 @@ def test_lora_inject_freezes_base_and_zero_init_matches():
 
 
 def test_lora_save_load_roundtrip():
+    """Save LoRA adapters, zero them, reload → output matches the saved state.
+
+    Uses the SAME base model so the test isolates whether the adapter
+    save/load roundtrip is faithful (not whether two randomly-initialized
+    bases happen to match).
+    """
     cfg = _tiny_config()
     model, _ = build_model(cfg)
-    inject_lora(model, rank=4, alpha=8, targets=("qkv", "proj"))
+    model.eval()  # disable dropout for deterministic comparison
+    inject_lora(model, rank=4, alpha=8, dropout=0.0, targets=("qkv", "proj"))
     with torch.no_grad():
         for m in model.modules():
             if hasattr(m, "lora_A"):
                 m.lora_A.normal_(0, 0.1)
                 m.lora_B.normal_(0, 0.1)
     ids = _ids()
-    out_before = model(ids).logits
+    with torch.no_grad():
+        out_before = model(ids).logits.clone()
     sd = lora_state_dict(model)
 
-    model2, _ = build_model(cfg)
-    inject_lora(model2, rank=4, alpha=8, targets=("qkv", "proj"))
-    load_lora_state_dict(model2, sd)
-    assert torch.allclose(out_before, model2(ids).logits, atol=1e-5)
+    # Zero out the adapters, confirm output changes (we're not trivially passing).
+    with torch.no_grad():
+        for m in model.modules():
+            if hasattr(m, "lora_A"):
+                m.lora_A.zero_()
+                m.lora_B.zero_()
+    with torch.no_grad():
+        assert not torch.allclose(out_before, model(ids).logits, atol=1e-5)
+
+    # Reload the saved adapters onto the same base → output matches.
+    load_lora_state_dict(model, sd)
+    with torch.no_grad():
+        assert torch.allclose(out_before, model(ids).logits, atol=1e-5)
 
 
 def test_lora_merge_preserves_output():
     cfg = _tiny_config()
     model, _ = build_model(cfg)
-    inject_lora(model, rank=4, alpha=8, targets=("qkv", "proj"))
+    model.eval()  # disable dropout for deterministic comparison
+    inject_lora(model, rank=4, alpha=8, dropout=0.0, targets=("qkv", "proj"))
     with torch.no_grad():
         for m in model.modules():
             if hasattr(m, "lora_A"):

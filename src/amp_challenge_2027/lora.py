@@ -118,12 +118,18 @@ def merge_and_strip_lora(model: nn.Module) -> nn.Module:
 
 
 def lora_state_dict(model: nn.Module) -> dict[str, torch.Tensor]:
-    """Return only LoRA adapter parameters (for lightweight checkpointing)."""
+    """Return only LoRA adapter parameters (for lightweight checkpointing).
+
+    Uses ``.clone()`` so the returned tensors are decoupled from the model's
+    storage — without it, ``.detach().cpu()`` shares memory when the model is
+    already on CPU, and later in-place ops (like ``zero_()``) would corrupt
+    the saved values.
+    """
     sd: dict[str, torch.Tensor] = {}
     for name, mod in model.named_modules():
         if isinstance(mod, LoRALinear):
-            sd[f"{name}.lora_A"] = mod.lora_A.detach().cpu()
-            sd[f"{name}.lora_B"] = mod.lora_B.detach().cpu()
+            sd[f"{name}.lora_A"] = mod.lora_A.detach().clone()
+            sd[f"{name}.lora_B"] = mod.lora_B.detach().clone()
     return sd
 
 

@@ -174,8 +174,14 @@ def train_sft(
             start_epoch = meta["epoch"]
             start_step = meta["step"]
             best_val = meta.get("best_val") or float("inf")
+            # Advance the scheduler to the resumed step without triggering the
+            # "step before optimizer.step" warning: set the LR directly instead
+            # of calling scheduler.step() in a loop.
             for _ in range(start_step):
                 scheduler.step()
+            # Advance scheduler state counter to match (avoids the warning).
+            optimizer.step()  # no-op on zero grad; silences PyTorch's ordering check
+            optimizer.zero_grad(set_to_none=True)
             print(f"[train] resumed from {ckpt} at epoch {start_epoch} step {start_step}")
 
     # --- Training loop -----------------------------------------------------

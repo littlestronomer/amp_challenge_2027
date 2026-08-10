@@ -36,6 +36,8 @@ def sample_sequences(
     pad_id: int = 0,
     vocab_size: int = 24,
     allowed_ids: list[int] | None = None,
+    repetition_penalty: float = 1.2,
+    min_length: int = 8,
 ) -> list[str]:
     """Sample ``n_sequences`` peptides from the model autoregressively.
 
@@ -46,6 +48,11 @@ def sample_sequences(
     (plus EOS) are allowed during generation; specials like PAD/BOS/MASK are
     masked out after the first step. Invalid/short/degenerate samples are left
     in — ``select.py`` filters them downstream.
+
+    ``repetition_penalty`` (>1.0) penalizes residues that already appear in the
+    partial sequence, breaking the degenerate "KKKKK" repeats AR models produce
+    when undertrained. Standard CTRL/CTRL-paper penalty: divide logit of any
+    token that appeared before by this factor.
     """
     import torch
 
@@ -73,6 +80,8 @@ def sample_sequences(
             pad_id=pad_id,
             vocab_size=vocab_size,
             allowed_ids=allowed_ids,
+            repetition_penalty=repetition_penalty,
+            min_length=min_length,
         )
         for row in ids:
             sequences.append(tok.decode(row))
@@ -95,6 +104,8 @@ def _sample_batch(
     pad_id: int,
     vocab_size: int,
     allowed_ids: list[int],
+    repetition_penalty: float = 1.2,
+    min_length: int = 8,
 ) -> list[list[int]]:
     """Sample one batch. Returns raw token-id lists (specials not yet stripped)."""
     import torch
@@ -104,9 +115,23 @@ def _sample_batch(
     mask_bias = torch.full((vocab_size,), float("-inf"), device=device)
     mask_bias[allowed_ids] = 0.0
 
-    for _ in range(max_length):
+    for step in range(max_length):
         out = model(cur)
         logits = out.logits[:, -1, :] / max(temperature, 1e-8) + mask_bias
+
+        # Repetition penalty: for each sequence, find tokens already generated
+        # and divide their logits by the penalty factor (>1 → less likely to repeat).
+        if repetition_penalty > 1.0:
+            for i in range(bs):
+                if finished[i]:
+                    continue
+                seen = cur[i].unique()
+                logits[i, seen] = logits[i, seen] / repetition_penalty
+
+        # Don't emit EOS before min_length — forces non-trivial sequences.
+        if step < min_length:
+            logits[:, eos_id] = float("-inf")
+
         if top_k is not None and top_k > 0:
             v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
             kth = v[:, -1:]
