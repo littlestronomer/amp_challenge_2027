@@ -25,7 +25,7 @@ def load_fasta(path: Path) -> list[str]:
     return [seq for _, seq in iter_fasta(path)]
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Score a peptide library with seqme.")
     parser.add_argument("--library", type=Path, required=True, help="FASTA to evaluate")
     parser.add_argument(
@@ -38,7 +38,7 @@ def main() -> None:
     )
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--out", type=Path, default=None, help="optional CSV to write metrics")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     try:
         import seqme as sm
