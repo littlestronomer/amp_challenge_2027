@@ -75,14 +75,14 @@ def _torch_available() -> bool:
 
 
 def generate_with_model(
-    n_sequences: int, *, seed: int, length: int, device: str
+    n_sequences: int, *, seed: int, length: int, device: str, checkpoint_dir: Path
 ) -> list[str]:
     """Sample from the trained custom generator. Requires the [ml] extra."""
     import torch
 
     from amp_challenge_2027.generator import load_model, sample_sequences
 
-    model, _config = load_model(GENERATOR_DIR, map_location=device)
+    model, _config = load_model(checkpoint_dir, map_location=device)
     model.to(device)
     model.eval()
     g = torch.Generator(device=device).manual_seed(seed)
@@ -144,25 +144,32 @@ def main() -> None:
         default=GENERATE_OUTPUT_DIR,
         help="output directory for library.fasta and top.fasta",
     )
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=GENERATOR_DIR,
+        help="trained generator checkpoint directory (default: checkpoint/generator)",
+    )
     args = parser.parse_args()
 
     np.random.seed(args.seed)  # belt-and-suspenders for any global-RNG callers
 
     # --- 1. Generate raw candidates ----------------------------------------
-    # Detect a trained HF model: checkpoint/generator/config.json (+ weights).
+    # Detect a trained model: <checkpoint>/config.json (+ weights).
     use_model = (
         _torch_available()
-        and GENERATOR_DIR.exists()
-        and (GENERATOR_DIR / "config.json").exists()
+        and args.checkpoint.exists()
+        and (args.checkpoint / "config.json").exists()
     )
     if use_model:
-        print(f"[generate] using trained AR generator from {GENERATOR_DIR}")
+        print(f"[generate] using trained AR generator from {args.checkpoint}")
         try:
             sequences = generate_with_model(
                 args.n_sequences,
                 seed=args.seed,
                 length=args.length,
                 device=args.device,
+                checkpoint_dir=args.checkpoint,
             )
         except Exception as e:
             print(f"[generate] model inference failed ({e}); falling back to seeded sampler")
