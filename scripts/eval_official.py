@@ -94,7 +94,9 @@ def main(argv: list[str] | None = None) -> None:
         cls = getattr(sm.metrics, cls_name, None)
         if cls is not None:
             try:
-                metrics.append((cls_name, cls(n_neighbors=5, reference=reference, embedder=embedder)))
+                metrics.append((cls_name, cls(
+                    n_neighbors=5, reference=reference, embedder=embedder, strict=False,
+                )))
             except Exception as e:
                 print(f"[eval] skip {cls_name}: {e}")
 
