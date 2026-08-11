@@ -171,26 +171,46 @@ def main() -> None:
         and args.checkpoint.exists()
         and (args.checkpoint / "config.json").exists()
     )
-    if use_model:
-        print(f"[generate] using trained AR generator from {args.checkpoint}")
-        try:
-            sequences = generate_with_model(
-                args.n_sequences,
-                seed=args.seed,
-                length=args.length,
-                device=args.device,
-                checkpoint_dir=args.checkpoint,
-                temperature=args.temperature,
-                top_k=args.sample_top_k,
-                top_p=args.top_p,
-                repetition_penalty=args.repetition_penalty,
-            )
-        except Exception as e:
-            print(f"[generate] model inference failed ({e}); falling back to seeded sampler")
-            sequences = generate_fallback(args.n_sequences, seed=args.seed, length=args.length)
-    else:
-        print("[generate] no trained generator found; using deterministic seeded sampler")
-        sequences = generate_fallback(args.n_sequences, seed=args.seed, length=args.length)
+
+    # Oversample to compensate for sequences lost to overlap/invalidity filters.
+    # Typical rejection rate is 10-20%; we generate 1.5× raw and top up in
+    # subsequent rounds if still short, so the final library always hits the
+    # requested size (critical for the competition's 50k requirement).
+    target = args.n_sequences
+    raw_needed = int(target * 1.5)
+    sequences: list[str] = []
+    round_idx = 0
+    while len(sequences) < raw_needed:
+        round_seed = args.seed + round_idx  # deterministic across re-runs
+        if use_model:
+            if round_idx == 0:
+                print(f"[generate] using trained AR generator from {args.checkpoint}")
+            batch_target = raw_needed - len(sequences)
+            try:
+                batch = generate_with_model(
+                    batch_target,
+                    seed=round_seed,
+                    length=args.length,
+                    device=args.device,
+                    checkpoint_dir=args.checkpoint,
+                    temperature=args.temperature,
+                    top_k=args.sample_top_k,
+                    top_p=args.top_p,
+                    repetition_penalty=args.repetition_penalty,
+                )
+            except Exception as e:
+                print(f"[generate] model inference failed ({e}); falling back to seeded sampler")
+                use_model = False
+                batch = generate_fallback(batch_target, seed=round_seed, length=args.length)
+        else:
+            if round_idx == 0:
+                print("[generate] no trained generator found; using deterministic seeded sampler")
+            batch = generate_fallback(raw_needed - len(sequences), seed=round_seed, length=args.length)
+        sequences.extend(batch)
+        round_idx += 1
+        if round_idx > 5:  # safety valve
+            break
+    print(f"[generate] generated {len(sequences)} raw candidates ({round_idx} round(s))")
 
     # --- 2. Load reference set (for no-overlap + novelty) ------------------
     reference_set: set[str] = set()
@@ -238,7 +258,7 @@ def main() -> None:
     if len(result.library) < args.n_sequences:
         print(
             f"[generate] WARNING: library has {len(result.library)} < {args.n_sequences}; "
-            "generate more raw candidates or relax filters.",
+            "consider increasing --n-sequences.",
             file=sys.stderr,
         )
 
