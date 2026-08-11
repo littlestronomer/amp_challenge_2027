@@ -56,13 +56,16 @@ def main(argv: list[str] | None = None) -> None:
     print("[eval] loading ESM-2 embedder...")
     embedder = sm.models.ESM2(model_name=args.esm_model, device=args.device)
 
-    # --- Property predictors (for ConformityScore) ---
+    # --- Property predictors (callables for ConformityScore) ---
+    # ConformityScore expects a list of callables, each (sequences) -> ndarray.
     print("[eval] loading property predictors...")
-    predictors = {
-        "charge": sm.models.Charge(),
-        "hydrophobicity": sm.models.Hydrophobicity(),
-        "hydrophobic_moment": sm.models.HydrophobicMoment(),
-    }
+    predictors = []
+    for name, cls in [("charge", sm.models.Charge), ("hydrophobicity", sm.models.Hydrophobicity),
+                       ("hydrophobic_moment", sm.models.HydrophobicMoment)]:
+        try:
+            predictors.append(cls())
+        except Exception as e:
+            print(f"[eval] skip predictor {name}: {e}")
 
     # --- Build the full metric set ---
     metrics = []
@@ -73,7 +76,7 @@ def main(argv: list[str] | None = None) -> None:
     metrics.append(("Diversity", sm.metrics.Diversity()))
     metrics.append(("Length", sm.metrics.Length()))
     try:
-        metrics.append(("NGramJaccard", sm.metrics.NGramJaccardSimilarity(reference=reference)))
+        metrics.append(("NGramJaccard", sm.metrics.NGramJaccardSimilarity(reference=reference, n=3)))
     except Exception as e:
         print(f"[eval] skip NGramJaccard: {e}")
 
@@ -86,24 +89,28 @@ def main(argv: list[str] | None = None) -> None:
         metrics.append(("MMD", sm.metrics.MMD(reference=reference, embedder=embedder)))
     except Exception as e:
         print(f"[eval] skip MMD: {e}")
-    try:
-        pr = sm.metrics.PrecisionRecall(reference=reference, embedder=embedder)
-        metrics.append(("PrecisionRecall", pr))
-    except Exception as e:
-        print(f"[eval] skip PrecisionRecall: {e}")
+    # Precision and Recall are separate classes in seqme.
+    for cls_name in ("Precision", "Recall"):
+        cls = getattr(sm.metrics, cls_name, None)
+        if cls is not None:
+            try:
+                metrics.append((cls_name, cls(n_neighbors=5, reference=reference, embedder=embedder)))
+            except Exception as e:
+                print(f"[eval] skip {cls_name}: {e}")
 
     # Family 3: Property conformity
-    try:
-        metrics.append((
-            "ConformityScore",
-            sm.metrics.ConformityScore(reference=reference, predictors=predictors),
-        ))
-    except Exception as e:
-        print(f"[eval] skip ConformityScore: {e}")
+    if predictors:
+        try:
+            metrics.append((
+                "ConformityScore",
+                sm.metrics.ConformityScore(reference=reference, predictors=predictors),
+            ))
+        except Exception as e:
+            print(f"[eval] skip ConformityScore: {e}")
 
-    # Family 4: Authenticity (fraction passing all property filters)
+    # Family 4: Authenticity
     try:
-        metrics.append(("AuthPct", sm.metrics.AuthPct(reference=reference)))
+        metrics.append(("AuthPct", sm.metrics.AuthPct(train_set=reference, embedder=embedder)))
     except Exception as e:
         print(f"[eval] skip AuthPct: {e}")
 
