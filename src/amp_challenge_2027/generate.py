@@ -294,11 +294,14 @@ def main() -> None:
     print(f"[generate] generated {len(all_sequences)} raw candidates ({round_idx} round(s))")
 
     # --- 3. Score with trained activity classifier --------------------------
-    scores: list[float] | None = None
+    # Score the clean library, then build a seq→score mapping that aligns
+    # with all_sequences for the final selection pass.
+    seq_to_score: dict[str, float] | None = None
     try:
-        scores = _score_with_classifier(result.library, device=args.device)
-        if scores is not None:
-            print(f"[generate] scored {len(scores)} sequences with activity classifier")
+        lib_scores = _score_with_classifier(result.library, device=args.device)
+        if lib_scores is not None:
+            print(f"[generate] scored {len(lib_scores)} sequences with activity classifier")
+            seq_to_score = dict(zip(result.library, lib_scores))
     except Exception as e:
         print(f"[generate] activity classifier unavailable ({e}); using fallback scorer")
         try:
@@ -308,12 +311,14 @@ def main() -> None:
             tag = "trained reward ensemble" if ensemble.is_trained else "fallback property scorer"
             print(f"[generate] scoring with {tag}")
             outputs = ensemble.score_batch(result.library)
-            scores = [o.score for o in outputs]
+            seq_to_score = {s: o.score for s, o in zip(result.library, outputs)}
         except Exception as e2:
             print(f"[generate] scoring unavailable ({e2}); ranking by diversity only")
 
     # --- 4. Final selection with scores ------------------------------------
-    if scores is not None:
+    # Map scores back to all_sequences via the seq→score dict.
+    if seq_to_score is not None:
+        scores = [seq_to_score.get(s, 0.0) for s in all_sequences]
         result = select_library_and_top(
             all_sequences,
             reference_set=reference_set,
