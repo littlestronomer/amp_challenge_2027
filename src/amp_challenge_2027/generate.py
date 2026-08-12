@@ -97,6 +97,65 @@ def generate_with_model(
     return sequences
 
 
+def _score_with_classifier(sequences: list[str], *, device: str = "cpu") -> list[float] | None:
+    """Score sequences using the trained activity classifier.
+
+    Loads the Phase-2 binary classifier from checkpoint/reward/ and returns
+    activity probabilities (0=inactive, 1=active). Falls back to None if no
+    classifier is found, so generate.py can use the property heuristic instead.
+    """
+    import json
+
+    from amp_challenge_2027.config import REWARD_DIR
+
+    ckpt_path = REWARD_DIR / "classifier.pt"
+    config_path = REWARD_DIR / "config.json"
+    if not ckpt_path.exists() or not config_path.exists():
+        return None
+
+    import torch
+    from torch import nn
+    from transformers import AutoModel, AutoTokenizer
+
+    config = json.loads(config_path.read_text())
+    esm_id = config["esm_model"]
+    tokenizer = AutoTokenizer.from_pretrained(esm_id)
+    esm = AutoModel.from_pretrained(esm_id).to(device).eval()
+    hidden = esm.config.hidden_size
+
+    class _Classifier(nn.Module):
+        def __init__(self, hidden_size: int):
+            super().__init__()
+            self.dense = nn.Linear(hidden_size, hidden_size)
+            self.act = nn.GELU()
+            self.drop = nn.Dropout(0.2)
+            self.classifier = nn.Linear(hidden_size, 1)
+
+        def forward(self, input_ids, attention_mask):
+            out = self.esm(input_ids=input_ids, attention_mask=attention_mask)
+            mask = attention_mask.unsqueeze(-1).float()
+            pooled = (out.last_hidden_state * mask).sum(1) / mask.sum(1).clamp(min=1.0)
+            x = self.drop(self.act(self.dense(pooled)))
+            x = self.drop(self.act(self.dense(x)))
+            return self.classifier(x).squeeze(-1)
+
+    model = _Classifier(hidden)
+    model.esm = esm
+    model.load_state_dict(torch.load(ckpt_path, map_location=device))
+    model.to(device).eval()
+
+    scores: list[float] = []
+    batch_size = 64
+    with torch.no_grad():
+        for start in range(0, len(sequences), batch_size):
+            batch = sequences[start : start + batch_size]
+            enc = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=52).to(device)
+            logits = model(enc["input_ids"], enc["attention_mask"])
+            probs = torch.sigmoid(logits).cpu().numpy()
+            scores.extend(probs.tolist())
+    return scores
+
+
 def generate_fallback(n_sequences: int, *, seed: int, length: int) -> list[str]:
     """Deterministic seeded sampler with no heavy dependencies.
 
@@ -234,18 +293,24 @@ def main() -> None:
 
     print(f"[generate] generated {len(all_sequences)} raw candidates ({round_idx} round(s))")
 
-    # --- 3. Score (reward ensemble or fallback) ----------------------------
+    # --- 3. Score with trained activity classifier --------------------------
     scores: list[float] | None = None
     try:
-        from amp_challenge_2027.reward import RewardEnsemble
-
-        ensemble = RewardEnsemble.load_or_fallback(device="cpu")
-        tag = "trained reward ensemble" if ensemble.is_trained else "fallback property scorer"
-        print(f"[generate] scoring with {tag}")
-        outputs = ensemble.score_batch(result.library)
-        scores = [o.score for o in outputs]
+        scores = _score_with_classifier(result.library, device=args.device)
+        if scores is not None:
+            print(f"[generate] scored {len(scores)} sequences with activity classifier")
     except Exception as e:
-        print(f"[generate] scoring unavailable ({e}); ranking by diversity only")
+        print(f"[generate] activity classifier unavailable ({e}); using fallback scorer")
+        try:
+            from amp_challenge_2027.reward import RewardEnsemble
+
+            ensemble = RewardEnsemble.load_or_fallback(device="cpu")
+            tag = "trained reward ensemble" if ensemble.is_trained else "fallback property scorer"
+            print(f"[generate] scoring with {tag}")
+            outputs = ensemble.score_batch(result.library)
+            scores = [o.score for o in outputs]
+        except Exception as e2:
+            print(f"[generate] scoring unavailable ({e2}); ranking by diversity only")
 
     # --- 4. Final selection with scores ------------------------------------
     if scores is not None:
