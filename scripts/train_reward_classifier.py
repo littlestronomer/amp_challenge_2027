@@ -41,7 +41,14 @@ def load_activity_data(path: Path) -> list[dict]:
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
             seq = row["sequence"].strip().upper()
-            label = 1 if row["label"].strip().lower() == "active" else 0
+            raw = row["label"].strip().lower()
+            # Handle both string ("active"/"inactive") and numeric (1/0) labels.
+            if raw in ("active", "1", "1.0", "true"):
+                label = 1
+            elif raw in ("inactive", "0", "0.0", "false"):
+                label = 0
+            else:
+                continue  # skip unknown labels
             records.append({"sequence": seq, "label": label})
     active = sum(1 for r in records if r["label"] == 1)
     print(f"[reward] loaded {len(records)} sequences (active={active}, inactive={len(records)-active})")
