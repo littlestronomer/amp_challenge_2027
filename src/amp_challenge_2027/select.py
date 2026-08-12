@@ -202,6 +202,16 @@ def farthest_point_select(
 
     rng = np.random.default_rng(seed)
     selected: list[int] = []
+
+    # For the top-k candidates, we want the HIGHEST-scoring sequences — the
+    # ones the classifier is most confident about. The random draw of 25 from
+    # the top-100 provides diversity naturally; we don't need to enforce it
+    # in the selection. Pure score ranking (alpha=0) is the right approach.
+    #
+    # Use alpha=0.1 (90% score, 10% diversity) to break score ties with
+    # a small diversity preference, preventing near-duplicate high-scorers.
+    alpha = 0.1
+
     # Seed with argmax score; random tie-break for determinism.
     top_score = norm_score.max()
     top_ids = np.where(norm_score >= top_score - 1e-6)[0]
@@ -210,7 +220,6 @@ def farthest_point_select(
 
     nearest = dist[start].copy()
     while len(selected) < k:
-        alpha = 0.5
         # objective: distance from the set (already in `nearest`) + score
         obj = alpha * nearest + (1 - alpha) * norm_score
         obj[selected] = -np.inf  # don't reselect
