@@ -157,7 +157,7 @@ def main() -> None:
     parser.add_argument("--sample-top-k", type=int, default=50, help="top-k sampling (0 to disable)")
     parser.add_argument("--top-p", type=float, default=0.9, help="nucleus sampling (0 to disable)")
     parser.add_argument(
-        "--repetition-penalty", type=float, default=1.2,
+        "--repetition-penalty", type=float, default=1.3,
         help="penalize repeated residues (>1.0, 1.0 to disable)",
     )
     args = parser.parse_args()
@@ -172,23 +172,31 @@ def main() -> None:
         and (args.checkpoint / "config.json").exists()
     )
 
-    # Oversample to compensate for sequences lost to overlap/invalidity filters.
-    # Typical rejection rate is 10-20%; we generate 1.5× raw and top up in
-    # subsequent rounds if still short, so the final library always hits the
-    # requested size (critical for the competition's 50k requirement).
+    # --- 2. Load reference set (for no-overlap + novelty) ------------------
+    reference_set: set[str] = set()
+    if ANTIBACTERIAL_FASTA.exists():
+        reference_set = read_reference_set(ANTIBACTERIAL_FASTA)
+        print(f"[generate] loaded {len(reference_set)} reference sequences for novelty checks")
+    else:
+        print(f"[generate] WARNING: {ANTIBACTERIAL_FASTA} missing; skipping overlap/novelty checks")
+
+    # Oversample in rounds until the CLEAN library hits the target size.
+    # Each round generates 2× the shortfall, filters, and accumulates.
+    # This is critical for the validator's 50k requirement — the rejection
+    # rate varies with model quality and repetition penalty.
     target = args.n_sequences
-    raw_needed = int(target * 1.5)
-    sequences: list[str] = []
+    all_sequences: list[str] = []
     round_idx = 0
-    while len(sequences) < raw_needed:
-        round_seed = args.seed + round_idx  # deterministic across re-runs
+    while True:
+        round_seed = args.seed + round_idx
         if use_model:
             if round_idx == 0:
                 print(f"[generate] using trained AR generator from {args.checkpoint}")
-            batch_target = raw_needed - len(sequences)
+            # Generate enough to cover the shortfall plus margin.
+            batch_size = int(target * 2) if round_idx == 0 else int(target * 0.5)
             try:
                 batch = generate_with_model(
-                    batch_target,
+                    batch_size,
                     seed=round_seed,
                     length=args.length,
                     device=args.device,
@@ -201,24 +209,30 @@ def main() -> None:
             except Exception as e:
                 print(f"[generate] model inference failed ({e}); falling back to seeded sampler")
                 use_model = False
-                batch = generate_fallback(batch_target, seed=round_seed, length=args.length)
+                batch = generate_fallback(batch_size, seed=round_seed, length=args.length)
         else:
             if round_idx == 0:
                 print("[generate] no trained generator found; using deterministic seeded sampler")
-            batch = generate_fallback(raw_needed - len(sequences), seed=round_seed, length=args.length)
-        sequences.extend(batch)
-        round_idx += 1
-        if round_idx > 5:  # safety valve
-            break
-    print(f"[generate] generated {len(sequences)} raw candidates ({round_idx} round(s))")
+            batch_size = int(target * 2) if round_idx == 0 else int(target * 0.5)
+            batch = generate_fallback(batch_size, seed=round_seed, length=args.length)
 
-    # --- 2. Load reference set (for no-overlap + novelty) ------------------
-    reference_set: set[str] = set()
-    if ANTIBACTERIAL_FASTA.exists():
-        reference_set = read_reference_set(ANTIBACTERIAL_FASTA)
-        print(f"[generate] loaded {len(reference_set)} reference sequences for novelty checks")
-    else:
-        print(f"[generate] WARNING: {ANTIBACTERIAL_FASTA} missing; skipping overlap/novelty checks")
+        all_sequences.extend(batch)
+        round_idx += 1
+
+        # Check if we have enough clean sequences.
+        result = select_library_and_top(
+            all_sequences,
+            reference_set=reference_set,
+            scores=None,
+            top_k=args.top_k,
+            library_size=target,
+            seed=args.seed,
+        )
+        if len(result.library) >= target or round_idx > 6:
+            break
+        print(f"[generate] round {round_idx}: {len(result.library)}/{target} clean, generating more...")
+
+    print(f"[generate] generated {len(all_sequences)} raw candidates ({round_idx} round(s))")
 
     # --- 3. Score (reward ensemble or fallback) ----------------------------
     scores: list[float] | None = None
@@ -228,20 +242,21 @@ def main() -> None:
         ensemble = RewardEnsemble.load_or_fallback(device="cpu")
         tag = "trained reward ensemble" if ensemble.is_trained else "fallback property scorer"
         print(f"[generate] scoring with {tag}")
-        outputs = ensemble.score_batch(sequences)
+        outputs = ensemble.score_batch(result.library)
         scores = [o.score for o in outputs]
     except Exception as e:
         print(f"[generate] scoring unavailable ({e}); ranking by diversity only")
 
-    # --- 4. Select compliant library + diversity-ranked top-k -------------
-    result = select_library_and_top(
-        sequences,
-        reference_set=reference_set,
-        scores=scores,
-        top_k=args.top_k,
-        library_size=args.n_sequences,
-        seed=args.seed,
-    )
+    # --- 4. Final selection with scores ------------------------------------
+    if scores is not None:
+        result = select_library_and_top(
+            all_sequences,
+            reference_set=reference_set,
+            scores=scores,
+            top_k=args.top_k,
+            library_size=target,
+            seed=args.seed,
+        )
     print(
         f"[generate] selection: {len(result.library)} in library, "
         f"{len(result.top)} in top, rejected={result.rejected}"
