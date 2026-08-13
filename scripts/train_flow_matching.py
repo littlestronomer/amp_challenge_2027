@@ -69,11 +69,17 @@ def build_embedding_cache(
 
     print(f"[flow] embedding {len(sequences)} sequences with {model_id}")
     model, tokenizer = load_esm2(model_id, device=device)
+
+    # Pad every batch to the SAME max_length so concatenation works.
+    # Without this, different batches get padded to different lengths
+    # (each batch pads to its own max), and np.concatenate fails.
     all_embeds = []
     for start in range(0, len(sequences), batch_size):
         batch = sequences[start : start + batch_size]
         enc = tokenizer(
-            batch, return_tensors="pt", padding=True, truncation=True, max_length=max_length
+            batch, return_tensors="pt",
+            padding="max_length",  # pad ALL to max_length, not batch-max
+            truncation=True, max_length=max_length,
         ).to(device)
         with torch.no_grad():
             out = model(**enc)
