@@ -109,7 +109,7 @@ def train_flow_matching(
     import torch
     from torch.optim import AdamW
 
-    from amp_challenge_2027.flow_matching import _build_denoiser
+    from amp_challenge_2027.flow_matching import FlowDenoiser as _build_denoiser
 
     torch.manual_seed(seed)
     np.random.seed(seed)
