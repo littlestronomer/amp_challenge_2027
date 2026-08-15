@@ -40,9 +40,17 @@ from amp_challenge_2027.config import DEFAULT_SEED, GENERATOR_DIR, MAX_LENGTH, P
 # ---------------------------------------------------------------------------
 
 
-def load_generative_dataset(path: Path) -> list[str]:
-    """Load curated peptides as a list of sequences."""
+def load_generative_dataset(path: Path, *, conditioning: str = "none"):
+    """Load curated peptides; with ``conditioning="charge"`` also compute charge bins.
+
+    Returns ``list[str]`` for unconditional training, or ``(sequences,
+    charge_bins)`` for charge-conditioned training. The CSV's ``charge`` column
+    is deliberately ignored — bins are recomputed with the modlamp (Bjellqvist)
+    charge so training labels live in the same scale as the ConformityScore.
+    """
     import csv
+
+    from amp_challenge_2027.conditioning import charge_bin
 
     sequences: list[str] = []
     with open(path, newline="") as f:
@@ -54,7 +62,15 @@ def load_generative_dataset(path: Path) -> list[str]:
     if not sequences:
         print("[train] no data; aborting SFT", file=sys.stderr)
         sys.exit(1)
-    return sequences
+    if conditioning != "charge":
+        return sequences
+    charge_bins = [charge_bin(s) for s in sequences]
+    import numpy as np
+
+    hist = np.bincount(charge_bins, minlength=21)
+    print(f"[train] charge bins: min={min(charge_bins)} max={max(charge_bins)} "
+          f"mode_bin={int(hist.argmax())} (histogram {hist.tolist()})")
+    return sequences, charge_bins
 
 
 def _tokenizer_fn(seq: str) -> list[int]:
@@ -97,6 +113,8 @@ def train_sft(
     wandb_project: str | None = None,
     num_workers: int = 2,
     resume: bool = True,
+    # Charge conditioning
+    conditioning: str = "none",
 ) -> None:
     import torch
     from torch.optim import AdamW
@@ -109,6 +127,7 @@ def train_sft(
         enable_determinism,
         latest_checkpoint,
         load_checkpoint,
+        make_charge_dataloader,
         make_dataloader,
         save_checkpoint,
     )
@@ -116,7 +135,13 @@ def train_sft(
     # --- Determinism (critical for the validator) -------------------------
     enable_determinism(seed)
 
-    sequences = load_generative_dataset(data_path)
+    if conditioning not in ("none", "charge"):
+        raise ValueError(f"unknown conditioning {conditioning!r}; expected 'none' or 'charge'")
+
+    if conditioning == "charge":
+        sequences, charge_bins = load_generative_dataset(data_path, conditioning="charge")
+    else:
+        sequences = load_generative_dataset(data_path)
     cfg = DecoderConfig(
         num_layers=num_layers,
         hidden_size=hidden_size,
@@ -126,11 +151,12 @@ def train_sft(
         moe_num_experts=moe_num_experts,
         moe_num_active=moe_active,
         attnres_num_blocks=attnres_blocks,
+        conditioning=conditioning,
     )
     model, _ = build_model(cfg)
     model.to(device)
     n_params = sum(p.numel() for p in model.parameters())
-    tag = f"{residual}+{ffn}"
+    tag = f"{residual}+{ffn}" + (f"+cond-{conditioning}" if conditioning != "none" else "")
     print(f"[train] model: {n_params/1e6:.1f}M params, {tag}, {num_layers}L × {hidden_size}H")
 
     # --- Train/val split ---------------------------------------------------
@@ -142,14 +168,26 @@ def train_sft(
     train_seqs = [sequences[i] for i in perm[:split]]
     val_seqs = [sequences[i] for i in perm[split:]]
 
-    train_loader = make_dataloader(
-        train_seqs, _tokenizer_fn, batch_size=batch_size, pad_id=tok.PAD_ID,
-        max_length=MAX_LENGTH + 2, num_workers=num_workers, shuffle=True, seed=seed,
-    )
-    val_loader = make_dataloader(
-        val_seqs, _tokenizer_fn, batch_size=batch_size, pad_id=tok.PAD_ID,
-        max_length=MAX_LENGTH + 2, num_workers=num_workers, shuffle=False, seed=seed,
-    ) if val_seqs else None
+    if conditioning == "charge":
+        train_bins = [charge_bins[i] for i in perm[:split]]
+        val_bins = [charge_bins[i] for i in perm[split:]]
+        train_loader = make_charge_dataloader(
+            train_seqs, train_bins, _tokenizer_fn, batch_size=batch_size, pad_id=tok.PAD_ID,
+            max_length=MAX_LENGTH + 2, num_workers=num_workers, shuffle=True, seed=seed,
+        )
+        val_loader = make_charge_dataloader(
+            val_seqs, val_bins, _tokenizer_fn, batch_size=batch_size, pad_id=tok.PAD_ID,
+            max_length=MAX_LENGTH + 2, num_workers=num_workers, shuffle=False, seed=seed,
+        ) if val_seqs else None
+    else:
+        train_loader = make_dataloader(
+            train_seqs, _tokenizer_fn, batch_size=batch_size, pad_id=tok.PAD_ID,
+            max_length=MAX_LENGTH + 2, num_workers=num_workers, shuffle=True, seed=seed,
+        )
+        val_loader = make_dataloader(
+            val_seqs, _tokenizer_fn, batch_size=batch_size, pad_id=tok.PAD_ID,
+            max_length=MAX_LENGTH + 2, num_workers=num_workers, shuffle=False, seed=seed,
+        ) if val_seqs else None
 
     # --- Optimizer + scheduler ---------------------------------------------
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -191,10 +229,18 @@ def train_sft(
         model.train()
         running = 0.0
         nb = 0
-        for batch_idx, (input_ids, labels) in enumerate(train_loader):
-            input_ids, labels = input_ids.to(device), labels.to(device)
+        for batch_idx, batch in enumerate(train_loader):
+            if conditioning == "charge":
+                input_ids, labels, charge = batch
+                input_ids = input_ids.to(device)
+                labels = labels.to(device)
+                charge = charge.to(device)
+            else:
+                input_ids, labels = batch
+                input_ids, labels = input_ids.to(device), labels.to(device)
+                charge = None
             with autocast_ctx():
-                out = model(input_ids)
+                out = model(input_ids, charge=charge)
                 shift_logits = out.logits[:, :-1, :].contiguous()
                 shift_labels = labels[:, 1:].contiguous()
                 lm_loss = torch.nn.functional.cross_entropy(
@@ -374,16 +420,24 @@ def _make_autocast(precision: str):
 
 
 def _evaluate(model, val_loader, device: str, autocast_ctx) -> float:
-    """Mean next-token loss on the validation set."""
+    """Mean next-token loss on the validation set (handles both batch formats)."""
     import torch
 
     total, n = 0.0, 0
     model.eval()
     with torch.no_grad():
-        for input_ids, labels in val_loader:
-            input_ids, labels = input_ids.to(device), labels.to(device)
+        for batch in val_loader:
+            if len(batch) == 3:  # charge-conditioned: (input_ids, labels, charge)
+                input_ids, labels, charge = batch
+                input_ids = input_ids.to(device)
+                labels = labels.to(device)
+                charge = charge.to(device)
+            else:
+                input_ids, labels = batch
+                input_ids, labels = input_ids.to(device), labels.to(device)
+                charge = None
             with autocast_ctx():
-                out = model(input_ids)
+                out = model(input_ids, charge=charge)
                 shift_logits = out.logits[:, :-1, :].contiguous()
                 shift_labels = labels[:, 1:].contiguous()
                 loss = torch.nn.functional.cross_entropy(
@@ -452,6 +506,17 @@ def main() -> None:
     p_sft.add_argument("--wandb-project", type=str, default=None)
     p_sft.add_argument("--num-workers", type=int, default=2)
     p_sft.add_argument("--no-resume", action="store_true")
+    p_sft.add_argument(
+        "--conditioning",
+        type=str,
+        default="none",
+        choices=["none", "charge"],
+        help=(
+            "Train a charge-conditioned generator: condition on the peptide's modlamp "
+            "net charge (21 bins, -8..+12). At generation time, sample bins from the "
+            "reference charge distribution to reproduce it (see generate --charge-conditioned)."
+        ),
+    )
 
     p_rl = sub.add_parser("rl", help="REINFORCE fine-tuning toward MIC (LoRA)")
     p_rl.add_argument("--sft-checkpoint", type=Path, default=GENERATOR_DIR)
@@ -480,6 +545,7 @@ def main() -> None:
             save_every=args.save_every, eval_every=args.eval_every, patience=args.patience,
             log_dir=args.log_dir, wandb_project=args.wandb_project,
             num_workers=args.num_workers, resume=not args.no_resume,
+            conditioning=args.conditioning,
         )
     elif args.stage == "rl":
         train_rl(

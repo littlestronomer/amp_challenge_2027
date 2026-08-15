@@ -38,6 +38,7 @@ def sample_sequences(
     allowed_ids: list[int] | None = None,
     repetition_penalty: float = 1.2,
     min_length: int = 8,
+    charge: list[int] | None = None,
 ) -> list[str]:
     """Sample ``n_sequences`` peptides from the model autoregressively.
 
@@ -48,6 +49,11 @@ def sample_sequences(
     (plus EOS) are allowed during generation; specials like PAD/BOS/MASK are
     masked out after the first step. Invalid/short/degenerate samples are left
     in — ``select.py`` filters them downstream.
+
+    ``charge`` (optional, length ``n_sequences``): per-sequence charge bins for
+    a charge-conditioned model (``conditioning="charge"``). Each sequence is
+    generated conditioned on its bin. ``None`` → unconditional (or the model's
+    default bin if it was trained conditioned) — backward compatible.
 
     ``repetition_penalty`` (>1.0) penalizes residues that already appear in the
     partial sequence, breaking the degenerate "KKKKK" repeats AR models produce
@@ -61,9 +67,14 @@ def sample_sequences(
     device = torch.device(device)
     if allowed_ids is None:
         allowed_ids = list(tok.RESIDUE_TO_ID.values()) + [eos_id]
+    if charge is not None and len(charge) != n_sequences:
+        raise ValueError(
+            f"charge has {len(charge)} bins but n_sequences={n_sequences}; must align"
+        )
 
     sequences: list[str] = []
     remaining = n_sequences
+    offset = 0
     while remaining > 0:
         bs = min(batch_size, remaining)
         ids = _sample_batch(
@@ -82,10 +93,12 @@ def sample_sequences(
             allowed_ids=allowed_ids,
             repetition_penalty=repetition_penalty,
             min_length=min_length,
+            charge=charge[offset : offset + bs] if charge is not None else None,
         )
         for row in ids:
             sequences.append(tok.decode(row))
         remaining -= bs
+        offset += bs
     return sequences
 
 
@@ -106,6 +119,7 @@ def _sample_batch(
     allowed_ids: list[int],
     repetition_penalty: float = 1.2,
     min_length: int = 8,
+    charge: list[int] | None = None,
 ) -> list[list[int]]:
     """Sample one batch. Returns raw token-id lists (specials not yet stripped)."""
     import torch
@@ -114,9 +128,12 @@ def _sample_batch(
     finished = torch.zeros(bs, dtype=torch.bool, device=device)
     mask_bias = torch.full((vocab_size,), float("-inf"), device=device)
     mask_bias[allowed_ids] = 0.0
+    charge_t = (
+        torch.as_tensor(charge, device=device, dtype=torch.long) if charge is not None else None
+    )
 
     for step in range(max_length):
-        out = model(cur)
+        out = model(cur, charge=charge_t)
         logits = out.logits[:, -1, :] / max(temperature, 1e-8) + mask_bias
 
         # Repetition penalty: for each sequence, find tokens already generated
