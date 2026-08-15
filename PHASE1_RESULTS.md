@@ -58,7 +58,39 @@ Val ppl 7.02. Not a strict v2 replication — trained ~6× longer than v2 eviden
 |---|---|---|---|---|
 | marginal-shaped (spread selection) | 0.543 | **0.369** | **0.713** | 0.835 |
 | v2 (moderate training) | 0.591 | 0.513 | 1.113 | **0.834** |
-| replica (deep training) | **0.626** | 1.075 | 2.921 | 0.741 |
+| replica (deep training) | 0.626 | 1.075 | 2.921 | 0.741 |
+
+## 10-seed sweep @ fixed 10 epochs (under-trained vs v2)
+
+`bash scripts/sweep_seeds.sh` on SSH, seeds 43–52, GPU-split, v2 architecture,
+`data/processed/generative.csv`, **exactly 10 epochs, no early stopping**, generation seed 42.
+
+| metric | mean | std | min | max |
+|---|---|---|---|---|
+| Uniqueness / Novelty | 1.0 | 0 | 1.0 | 1.0 |
+| Diversity | 0.8411 | 0.0020 | 0.8382 | 0.8446 |
+| Length | 13.82 | 0.76 | 12.89 | 15.01 |
+| FBD | 3.385 | 0.913 | 2.026 | 4.569 |
+| MMD | 10.46 | 2.83 | 6.08 | 14.10 |
+| Precision | 0.9562 | 0.0139 | 0.9324 | 0.9735 |
+| Recall | 0.2964 | 0.1596 | 0.0923 | 0.5467 |
+| ConformityScore | 0.7027 | 0.0234 | 0.6493 | 0.7306 |
+| Authenticity | 0.7062 | 0.0340 | 0.6521 | 0.7542 |
+
+**Training budget dominates seed.** Monotone trend across budgets (same arch/data):
+
+| budget | Length | Recall | FBD | MMD | Conformity |
+|---|---|---|---|---|---|
+| 10 epochs (sweep, n=10) | 13.8 ± 0.8 | 0.30 ± 0.16 | 3.38 | 10.5 | 0.70 |
+| 59 epochs (replica, seed 43) | 16.7 | 0.74 | 1.07 | 2.9 | 0.63 |
+| v2 (unknown budget, ppl 9.58) | 17.4 | 0.83 | 0.51 | 1.1 | 0.59 |
+
+Under-trained models sit at the extreme mode-seeking end: short, charge-heavy,
+high-density-core peptides (Conformity up, Recall/FBD/MMD collapsed). v2 must
+have trained longer than 10 epochs; historical evidence (hung Aug-9 process)
+shows `--epochs 20 --patience 5` style. At fixed budget, most metrics are tight
+across seeds (Diversity σ=0.002, Precision σ=0.014) but Recall spreads
+0.09–0.55 — coverage is seed-sensitive at short budgets.
 
 Reference: `data/antibacterial.fasta`, 39448 sequences. Embedder for eval: `facebook/esm2_t6_8M_UR50D`.
 

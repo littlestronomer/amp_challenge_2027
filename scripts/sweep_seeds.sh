@@ -30,7 +30,13 @@ ESM_MODEL="${ESM_MODEL:-facebook/esm2_t6_8M_UR50D}"
 RESULTS_DIR="${RESULTS_DIR:-sweep_results}"
 PY="${PY:-.venv/bin/python}"
 
-mkdir -p "$RESULTS_DIR"
+# Namespace all artifacts by the training budget so sweeps at different
+# budgets (e.g. EPOCHS=20 PATIENCE=5 vs EPOCHS=10) never collide or
+# falsely "skip" each other's checkpoints/CSVs.
+TAG="e${EPOCHS}_p${PATIENCE:-none}"
+SUBDIR="${RESULTS_DIR}/${TAG}"
+
+mkdir -p "$SUBDIR"
 
 # Optional --patience flag (only when PATIENCE is set).
 PATIENCE_FLAGS=()
@@ -39,10 +45,10 @@ if [ -n "$PATIENCE" ]; then
 fi
 
 for SEED in $SEEDS; do
-  CKPT="checkpoint/generator-seed${SEED}"
-  OUTDIR="generate/submission-seed${SEED}"
-  LOG="$RESULTS_DIR/seed${SEED}.log"
-  CSV="$RESULTS_DIR/seed${SEED}_metrics.csv"
+  CKPT="checkpoint/generator-${TAG}-seed${SEED}"
+  OUTDIR="generate/submission-${TAG}-seed${SEED}"
+  LOG="$SUBDIR/seed${SEED}.log"
+  CSV="$SUBDIR/seed${SEED}_metrics.csv"
 
   echo "=== seed ${SEED} ==="
 
@@ -105,16 +111,21 @@ import sys
 
 import pandas as pd
 
-paths = sorted(glob.glob("sweep_results/seed*_metrics.csv"))
+# Collect both the new namespaced layout (sweep_results/<tag>/seedN_...) and
+# the original flat layout (sweep_results/seedN_...) from the first 10-epoch sweep.
+paths = sorted(
+    glob.glob("sweep_results/*/seed*_metrics.csv") + glob.glob("sweep_results/seed*_metrics.csv")
+)
 if not paths:
     sys.exit("no metric CSVs found under sweep_results/")
 
 rows = {}
 for p in paths:
-    m = re.search(r"seed(\d+)_metrics\.csv$", p)
+    m = re.search(r"(?:([A-Za-z0-9_]+)/)?seed(\d+)_metrics\.csv$", p)
     if not m:
         continue
-    seed = int(m.group(1))
+    tag = m.group(1) or "e10_flat"
+    seed = int(m.group(2))
     try:
         df = pd.read_csv(p, header=[0, 1], index_col=0)
         vals = df.xs("value", axis=1, level=1).iloc[0]
@@ -125,14 +136,18 @@ for p in paths:
         except Exception as e:
             print(f"could not parse {p}: {e}")
             continue
-    rows[f"seed{seed}"] = vals
+    rows[f"{tag}/seed{seed}"] = vals
 
 table = pd.DataFrame(rows).T
 print("=== per-seed Phase-1 metrics ===")
 print(table.to_string())
 print()
-print("=== mean / std / min / max across seeds ===")
-print(table.agg(["mean", "std", "min", "max"]).T.to_string())
+print("=== mean / std / min / max per training budget ===")
+grouped = table.groupby(table.index.str.split("/").str[0])
+for tag, sub in grouped:
+    print(f"--- {tag} (n={len(sub)}) ---")
+    print(sub.agg(["mean", "std", "min", "max"]).T.to_string())
+    print()
 PYEOF
 
 echo ""
