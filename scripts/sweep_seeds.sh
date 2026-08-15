@@ -77,7 +77,7 @@ for SEED in $SEEDS; do
       --num-workers 2 \
       --seed "$SEED" \
       --out-dir "$CKPT" \
-      --log-dir "runs/seed${SEED}" \
+      --log-dir "runs/${TAG}-seed${SEED}" \
       --no-resume >> "$LOG" 2>&1 \
       || { echo "seed ${SEED}: TRAIN FAILED (see $LOG)"; continue; }
   else
