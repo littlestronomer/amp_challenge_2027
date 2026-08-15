@@ -40,3 +40,4 @@ wandb/
 
 # Profiling artifacts
 profiling/
+.zcode/
