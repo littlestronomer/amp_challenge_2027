@@ -92,6 +92,42 @@ shows `--epochs 20 --patience 5` style. At fixed budget, most metrics are tight
 across seeds (Diversity σ=0.002, Precision σ=0.014) but Recall spreads
 0.09–0.55 — coverage is seed-sensitive at short budgets.
 
+## 10-seed sweep @ e100/p10 — the CONFIRMED v2 recipe (seeds 42–51)
+
+`sweep_results/e100_p10/`, seeds 42–51, `--epochs 100 --patience 10`, v2 architecture/data,
+generation seed 42. **seed 42 reproduced v2's library metrics exactly** (all displayed digits) —
+recipe confirmed, end-to-end determinism re-validated. seed 43 likewise reproduced the earlier
+replica (second independent determinism check).
+
+| metric | mean | std | min | max | v2 (seed42) |
+|---|---|---|---|---|---|
+| Diversity | 0.8443 | 0.0024 | 0.8398 | 0.8483 | 0.8452 |
+| Length | 16.74 | 0.74 | 15.28 | 18.00 | 17.36 |
+| FBD | 0.906 | 0.467 | **0.192** | 1.888 | 0.513 |
+| MMD | 2.44 | 1.58 | **0.553** | 6.100 | 1.113 |
+| Precision | 0.919 | 0.025 | 0.854 | 0.945 | 0.909 |
+| Recall | 0.764 | 0.091 | 0.574 | **0.913** | 0.834 |
+| ConformityScore | 0.603 | 0.042 | 0.497 | 0.653 | 0.591 |
+| Authenticity | 0.749 | 0.019 | 0.713 | 0.789 | 0.750 |
+
+**Conclusions:**
+1. **v2 was not luck** — it sits within ~1σ of the recipe's seed distribution on every metric
+   (mildly favorable on FBD/MMD/Recall, typical elsewhere). All 10 seeds crush the HydrAMP
+   baseline.
+2. **Seed variance within the recipe is large** (FBD spans 0.19–1.89, a 10× range; Recall
+   0.57–0.91; Conformity 0.50–0.65) — seed choice is a real lever, comparable in effect to
+   the training-budget and selection-strategy axes.
+3. **seed 44 is a coverage champion**: FBD 0.192, MMD 0.553, Recall 0.913, Authenticity 0.789,
+   Diversity 0.848, Length 18.0 — beats v2 on all six — at the cost of Precision 0.854 (−0.055)
+   and Conformity 0.497 (−0.094). It also beats the *marginal-shaped* v2 library on all four
+   of FBD/MMD/Recall/Conformity, making the shaping hack obsolete for the FBD objective.
+   Checkpoint: `checkpoint/generator-e100_p10-seed44`, library:
+   `generate/submission-e100_p10-seed44/`.
+
+Pareto frontier of candidates (no weighting known): seed44 (distributional coverage) ↔
+v2/seed42 (balanced, best Precision among balanced) ↔ seed51 (Precision 0.945 / Conformity
+0.653 extreme).
+
 Reference: `data/antibacterial.fasta`, 39448 sequences. Embedder for eval: `facebook/esm2_t6_8M_UR50D`.
 
 ## Property distributions (props.py scale)
