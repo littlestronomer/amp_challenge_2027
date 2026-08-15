@@ -5,26 +5,31 @@
 # can tell whether the v2 submission's metric profile is typical or fortunate.
 #
 # Per seed:
-#   1. SFT train  (v2 recipe: block_attnres, 6L/384H/6H, 10 epochs, defaults)
+#   1. SFT train  (v2 recipe: block_attnres, 6L/384H/6H, 100 epochs, patience 10)
 #   2. Generate   (50k library + top-100, repetition-penalty 1.3, seed fixed at 42
 #                  so differences across runs come from the model, not sampling)
 #   3. Evaluate   (full 11-metric protocol via eval_official.py, CSV per seed)
-# At the end: aggregated per-seed table + mean/std/min/max across seeds.
+# At the end: aggregated per-seed table + mean/std/min/max per training budget.
+# Artifacts are namespaced by budget (TAG=e{EPOCHS}_p{PATIENCE}) so sweeps at
+# different budgets never collide or falsely skip each other.
+#
+# NOTE: seed 42 is the strict v2 replication (the original run used the default
+# seed). Watch its final val ppl: v2 recorded 9.58.
 #
 # Usage (from the repo root, on the SSH machine):
-#   bash scripts/sweep_seeds.sh                          # defaults: GPU 1, seeds 43-52
-#   GPU=0 SEEDS="43 44 45 46 47" bash scripts/sweep_seeds.sh &
-#   GPU=1 SEEDS="48 49 50 51 52" bash scripts/sweep_seeds.sh &   # split across both GPUs
-#   EPOCHS=100 PATIENCE=10 bash scripts/sweep_seeds.sh   # converged recipe instead
+#   bash scripts/sweep_seeds.sh                          # defaults: GPU 1, seeds 42-51, 100ep/p10
+#   GPU=0 SEEDS="42 43 44 45 46" bash scripts/sweep_seeds.sh &
+#   GPU=1 SEEDS="47 48 49 50 51" bash scripts/sweep_seeds.sh &   # split across both GPUs
+#   EPOCHS=10 bash scripts/sweep_seeds.sh                # short-budget variant instead
 #
 # Resumable: a seed is skipped entirely if its metrics CSV already exists;
 # training is skipped if the checkpoint already exists.
 
 set -u
 
-SEEDS="${SEEDS:-43 44 45 46 47 48 49 50 51 52}"
-EPOCHS="${EPOCHS:-10}"
-PATIENCE="${PATIENCE:-}"          # empty = fixed-epoch budget (no early stopping)
+SEEDS="${SEEDS:-42 43 44 45 46 47 48 49 50 51}"
+EPOCHS="${EPOCHS:-100}"
+PATIENCE="${PATIENCE:-10}"        # early stopping: stop after N evals without val improvement
 GPU="${GPU:-1}"
 ESM_MODEL="${ESM_MODEL:-facebook/esm2_t6_8M_UR50D}"
 RESULTS_DIR="${RESULTS_DIR:-sweep_results}"
