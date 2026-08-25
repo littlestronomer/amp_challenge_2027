@@ -39,7 +39,9 @@ ml = [
     "wandb>=0.18",
 ]
 seqme = [
-    "seqme[esm2]>=0.1",
+    # aa_descriptors pulls modlamp (Charge / Hydrophobicity / HydrophobicMoment
+    # predictors required by ConformityScore); esm2 pulls the embedding stack.
+    "seqme[esm2,aa_descriptors]>=0.1",
 ]
 
 # Blackwell GPUs (RTX 50-series, compute capability 12.0) need torch built
