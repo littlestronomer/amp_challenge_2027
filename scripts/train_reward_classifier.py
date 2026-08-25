@@ -117,9 +117,10 @@ def build_classifier(esm_model: str, unfreeze_layers: int, device: str = "cpu"):
 
 
 def compute_metrics(logits, labels):
-    """Compute accuracy, AUROC, F1, precision, recall."""
+    """Compute accuracy, AUROC, F1, precision, recall, average precision."""
     from sklearn.metrics import (
         accuracy_score,
+        average_precision_score,
         f1_score,
         precision_score,
         recall_score,
@@ -138,7 +139,34 @@ def compute_metrics(logits, labels):
         metrics["auroc"] = roc_auc_score(labels, probs)
     except ValueError:
         metrics["auroc"] = 0.5
+    try:
+        metrics["ap"] = average_precision_score(labels, probs)
+    except ValueError:
+        metrics["ap"] = float(np.mean(labels))
     return metrics
+
+
+def fit_temperature(logits: np.ndarray, labels: np.ndarray) -> float:
+    """Scalar temperature minimizing val BCE (grid + local refine). Pure numpy.
+
+    Calibrated probabilities matter because the composite scorer thresholds and
+    z-scores activity across candidates; a systematically overconfident head
+    compresses the useful part of the score distribution.
+    """
+    def nll(t: float) -> float:
+        p = 1 / (1 + np.exp(-logits / t))
+        p = np.clip(p, 1e-7, 1 - 1e-7)
+        return float(-np.mean(labels * np.log(p) + (1 - labels) * np.log(1 - p)))
+
+    grid = np.concatenate([
+        np.linspace(0.25, 4.0, 76),
+        1.0 / np.linspace(0.25, 1.0, 16),  # T < 1 side too
+    ])
+    best = float(grid[np.argmin([nll(t) for t in grid])])
+    for step in (0.05, 0.01):
+        local = np.linspace(max(best - 10 * step, 0.1), best + 10 * step, 21)
+        best = float(local[np.argmin([nll(t) for t in local])])
+    return round(best, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +185,77 @@ def train(
     seed: int = DEFAULT_SEED,
     device: str = "cuda",
     out_dir: Path = REWARD_DIR,
+    ensemble_size: int = 1,
+    calibrate: bool = True,
 ) -> None:
+    """Train one or more classifier members; promote the best by val AUROC.
+
+    With ``ensemble_size > 1`` each member trains under ``<out_dir>/member{i}/``
+    with seed ``seed + i``; the winner's weights become ``classifier.pt`` and a
+    fitted temperature is stored in ``config.json`` (applied at inference by
+    ``score.ActivityScorer``). All members are summarized in ``members.json``.
+    """
+    import json
+    import shutil
+
+    summary = []
+    best: tuple[float, int, float] | None = None
+    for member in range(ensemble_size):
+        res = _train_single(
+            data_path,
+            esm_model=esm_model,
+            unfreeze_layers=unfreeze_layers,
+            epochs=epochs,
+            batch_size=batch_size,
+            lr=lr,
+            seed=seed + member,
+            device=device,
+            save_dir=Path(out_dir) / f"member{member}",
+        )
+        temperature = (
+            round(float(fit_temperature(res["val_logits"], res["val_labels"])), 3)
+            if calibrate
+            else 1.0
+        )
+        print(f"[reward] member {member}: best val AUROC {res['best_auroc']:.3f} "
+              f"(calibration T={temperature})")
+        summary.append({
+            "member": member,
+            "seed": seed + member,
+            "val_auroc": round(res["best_auroc"], 4),
+            "temperature": temperature,
+        })
+        if best is None or res["best_auroc"] > best[0]:
+            best = (res["best_auroc"], member, temperature)
+
+    assert best is not None
+    _, winner, temperature = best
+    src = Path(out_dir) / f"member{winner}"
+    for fname in ("classifier.pt", "config.json"):
+        shutil.copy2(src / fname, Path(out_dir) / fname)
+    cfg_path = Path(out_dir) / "config.json"
+    cfg = json.loads(cfg_path.read_text())
+    cfg["temperature"] = temperature
+    cfg["val_auroc"] = round(float(best[0]), 4)
+    cfg_path.write_text(json.dumps(cfg, indent=2))
+    (Path(out_dir) / "members.json").write_text(json.dumps(summary, indent=2))
+    print(f"\n[reward] promoted member {winner} "
+          f"(val AUROC {best[0]:.3f}, T={temperature}) → {out_dir}")
+
+
+def _train_single(
+    data_path: Path,
+    *,
+    esm_model: str,
+    unfreeze_layers: int,
+    epochs: int,
+    batch_size: int,
+    lr: float,
+    seed: int,
+    device: str,
+    save_dir: Path,
+) -> dict:
+    """Train one classifier member. Returns best-val-AUROC bookkeeping."""
     import torch
     from torch.optim import AdamW
 
@@ -204,6 +302,8 @@ def train(
     scheduler = build_cosine_scheduler(optimizer, total_steps=total_steps, warmup_steps=int(0.1 * total_steps))
 
     best_auroc = 0.0
+    best_val_logits: np.ndarray | None = None
+    best_val_labels: np.ndarray | None = None
 
     for epoch in range(epochs):
         # --- Train ---
@@ -247,14 +347,17 @@ def train(
                 all_logits.extend(logits.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
 
-        m = compute_metrics(np.array(all_logits), np.array(all_labels))
+        val_logits = np.array(all_logits)
+        val_labels = np.array(all_labels)
+        m = compute_metrics(val_logits, val_labels)
         avg_train = total_loss / max(n_batches, 1)
         avg_val = val_loss_total / max(val_batches, 1)
 
         improved = ""
         if m["auroc"] > best_auroc:
             best_auroc = m["auroc"]
-            _save_classifier(model, tokenizer, esm_model, unfreeze_layers, out_dir)
+            best_val_logits, best_val_labels = val_logits, val_labels
+            _save_classifier(model, tokenizer, esm_model, unfreeze_layers, save_dir)
             improved = " ← saved (best)"
 
         if (epoch + 1) % 5 == 0 or improved:
@@ -266,7 +369,12 @@ def train(
             )
 
     print(f"\n[reward] best AUROC: {best_auroc:.3f}")
-    print(f"[reward] saved to {out_dir}")
+    print(f"[reward] saved to {save_dir}")
+    return {
+        "best_auroc": best_auroc,
+        "val_logits": best_val_logits if best_val_logits is not None else np.zeros(0),
+        "val_labels": best_val_labels if best_val_labels is not None else np.zeros(0),
+    }
 
 
 def _save_classifier(model, tokenizer, esm_model: str, unfreeze_layers: int, out_dir: Path) -> None:
@@ -300,6 +408,14 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--out-dir", type=Path, default=REWARD_DIR)
+    parser.add_argument(
+        "--ensemble-size", type=int, default=1,
+        help="train N members (seeds seed..seed+N-1); promote the best by val AUROC",
+    )
+    parser.add_argument(
+        "--no-calibrate", action="store_true",
+        help="skip temperature scaling on the validation set",
+    )
     args = parser.parse_args()
 
     train(
@@ -312,6 +428,8 @@ def main() -> None:
         seed=args.seed,
         device=args.device,
         out_dir=args.out_dir,
+        ensemble_size=args.ensemble_size,
+        calibrate=not args.no_calibrate,
     )
 
 

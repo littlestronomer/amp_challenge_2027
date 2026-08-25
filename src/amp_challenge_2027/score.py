@@ -174,14 +174,20 @@ def _build_activity_module():
 
 
 class ActivityScorer:
-    """Probability from the trained binary activity classifier (or None)."""
+    """Probability from the trained binary activity classifier (or None).
+
+    If ``config.json`` carries a ``temperature`` (fitted on validation by
+    ``train_reward_classifier.py --ensemble-size``), logits are divided by it
+    before the sigmoid so probabilities are calibrated, not just ranked.
+    """
 
     name = "activity"
 
-    def __init__(self, model, tokenizer, device: str) -> None:
+    def __init__(self, model, tokenizer, device: str, temperature: float = 1.0) -> None:
         self._model = model
         self._tokenizer = tokenizer
         self._device = device
+        self._temperature = max(float(temperature), 1e-3)
 
     @classmethod
     def load(cls, *, device: str = "cpu") -> ActivityScorer | None:
@@ -202,7 +208,7 @@ class ActivityScorer:
             model.esm = esm
             model.load_state_dict(torch.load(ckpt_path, map_location=device))
             model.to(device).eval()
-            return cls(model, tokenizer, device)
+            return cls(model, tokenizer, device, temperature=config.get("temperature", 1.0))
         except Exception as e:
             print(f"[score] activity classifier unavailable ({e}); dropping component")
             return None
@@ -220,7 +226,9 @@ class ActivityScorer:
                 )
                 enc = {k: v.to(self._device) for k, v in enc.items()}
                 logits = self._model(enc["input_ids"], enc["attention_mask"])
-                probs[start : start + batch_size] = torch.sigmoid(logits).cpu().numpy()
+                probs[start : start + batch_size] = torch.sigmoid(
+                    logits / self._temperature
+                ).cpu().numpy()
         return probs
 
 
