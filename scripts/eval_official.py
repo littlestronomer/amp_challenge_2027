@@ -4,19 +4,16 @@ Replicates the competition's four metric families as described in the proposal
 (§1.5), using the same seqme library the organizers use. This gives you the
 most accurate local estimate of your Phase-1 standing.
 
-Metric families (per the competition PDF):
-  1. Sequence-level:      Uniqueness, Novelty, Diversity, Length, NGramJaccard
-  2. Distributional:      FBD, MMD, Precision, Recall (via ESM-2 embeddings)
-  3. Property conformity: ConformityScore (charge, hydrophobicity, amphipathicity)
-  4. Surrogate activity:  HitRate (AMP classifier surrogate)
+Metric construction lives in ``amp_challenge_2027.metrics_official`` so this
+CLI and ``scripts/sweep_selection.py`` share one implementation.
 
 The exact aggregation weights and reference-set composition are HELD BACK by
 the organizers until Phase-1 closes, so this can't reproduce the official
 ranking — but it gives you all the component metrics under matched conditions.
 
 Usage:
-    .venv/bin/python -u -c "..." --library generate/submission/library.fasta \\
-        --esm-model facebook/esm2_t33_650M_UR50D --device cuda
+    uv run --extra ml --extra seqme python scripts/eval_official.py \\
+        --library generate/library.fasta --esm-model facebook/esm2_t6_8M_UR50D --device cuda
 """
 
 from __future__ import annotations
@@ -46,76 +43,18 @@ def main(argv: list[str] | None = None) -> None:
 
     import seqme as sm
 
+    from amp_challenge_2027.metrics_official import build_metric_list
+
     generated = load_fasta(args.library)
     reference = load_fasta(args.reference)
     print(f"[eval] generated: {len(generated)} sequences")
     print(f"[eval] reference: {len(reference)} sequences")
     print(f"[eval] embedder: {args.esm_model} on {args.device}")
 
-    # --- Embedder (shared across distributional metrics) ---
     print("[eval] loading ESM-2 embedder...")
     embedder = sm.models.ESM2(model_name=args.esm_model, device=args.device)
 
-    # --- Property predictors (callables for ConformityScore) ---
-    # ConformityScore expects a list of callables, each (sequences) -> ndarray.
-    print("[eval] loading property predictors...")
-    predictors = []
-    for name, cls in [("charge", sm.models.Charge), ("hydrophobicity", sm.models.Hydrophobicity),
-                       ("hydrophobic_moment", sm.models.HydrophobicMoment)]:
-        try:
-            predictors.append(cls())
-        except Exception as e:
-            print(f"[eval] skip predictor {name}: {e}")
-
-    # --- Build the full metric set ---
-    metrics = []
-
-    # Family 1: Sequence-level
-    metrics.append(("Uniqueness", sm.metrics.Uniqueness()))
-    metrics.append(("Novelty", sm.metrics.Novelty(reference=reference)))
-    metrics.append(("Diversity", sm.metrics.Diversity()))
-    metrics.append(("Length", sm.metrics.Length()))
-    try:
-        metrics.append(("NGramJaccard", sm.metrics.NGramJaccardSimilarity(reference=reference, n=3)))
-    except Exception as e:
-        print(f"[eval] skip NGramJaccard: {e}")
-
-    # Family 2: Distributional (embedding-space)
-    try:
-        metrics.append(("FBD", sm.metrics.FBD(reference=reference, embedder=embedder)))
-    except Exception as e:
-        print(f"[eval] skip FBD: {e}")
-    try:
-        metrics.append(("MMD", sm.metrics.MMD(reference=reference, embedder=embedder)))
-    except Exception as e:
-        print(f"[eval] skip MMD: {e}")
-    # Precision and Recall are separate classes in seqme.
-    for cls_name in ("Precision", "Recall"):
-        cls = getattr(sm.metrics, cls_name, None)
-        if cls is not None:
-            try:
-                metrics.append((cls_name, cls(
-                    n_neighbors=5, reference=reference, embedder=embedder, strict=False,
-                )))
-            except Exception as e:
-                print(f"[eval] skip {cls_name}: {e}")
-
-    # Family 3: Property conformity
-    if predictors:
-        try:
-            metrics.append((
-                "ConformityScore",
-                sm.metrics.ConformityScore(reference=reference, predictors=predictors),
-            ))
-        except Exception as e:
-            print(f"[eval] skip ConformityScore: {e}")
-
-    # Family 4: Authenticity
-    try:
-        metrics.append(("AuthPct", sm.metrics.AuthPct(train_set=reference, embedder=embedder)))
-    except Exception as e:
-        print(f"[eval] skip AuthPct: {e}")
-
+    metrics = build_metric_list(reference, embedder)
     names = [n for n, _ in metrics]
     metric_objs = [m for _, m in metrics]
     print(f"[eval] computing {len(metric_objs)} metrics: {names}")
