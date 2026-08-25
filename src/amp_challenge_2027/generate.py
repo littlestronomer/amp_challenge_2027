@@ -12,13 +12,21 @@ Outputs:
       top.fasta      — top-100 ranked, plausible, novel (≤80% identity)
 
 The generation strategy in priority order:
-    1. Trained AR generator + trained reward ensemble (full pipeline).
+    0. ``--pool <fasta> [...]`` — blend/rerank pre-generated candidate pools
+       (one per checkpoint) instead of sampling; see scripts/blend_libraries.py.
+    1. Trained AR generator + composite scorer (full pipeline).
     2. Trained AR generator + fallback property scorer.
     3. Deterministic seeded sampler (no torch) — the always-works fallback.
 
 Strategy 3 guarantees ``uv run generate`` succeeds on a fresh clone even before
 any model is trained, which is essential for incremental development and for
 the validator (which runs on CI with only the light runtime deps installed).
+
+Ranking uses the composite scorer from ``pipeline.build_composite_scorer``
+(activity classifier + property-conformity density + embedding-space precision
+proxy, weighted by ``--w-*`` flags). Components unavailable in the current
+environment are dropped automatically; with none available, selection falls
+back to pure diversity.
 """
 
 from __future__ import annotations
@@ -40,25 +48,15 @@ from amp_challenge_2027.config import (
     MIN_LENGTH,
     TOP_K,
 )
-from amp_challenge_2027.data import read_reference_set
-from amp_challenge_2027.select import select_library_and_top
-
-# ---------------------------------------------------------------------------
-# Output writing
-# ---------------------------------------------------------------------------
-
-
-def _write_fasta(sequences: list[str], path: Path) -> None:
-    """Write sequences to a FASTA file with stable ``>seq{i}`` headers.
-
-    Writing order is the list order; selection guarantees that order is a pure
-    function of (seed, inputs), so output is reproducible.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        for i, seq in enumerate(sequences, start=1):
-            f.write(f">seq{i}\n{seq}\n")
-
+from amp_challenge_2027.data import read_reference_set, write_fasta
+from amp_challenge_2027.pipeline import (
+    DEFAULT_WEIGHTS,
+    build_composite_scorer,
+    clean_candidates,
+    load_pool_fastas,
+    score_candidates,
+)
+from amp_challenge_2027.select import count_clean_candidates, select_library_and_top
 
 # ---------------------------------------------------------------------------
 # Generation strategies
@@ -90,7 +88,6 @@ def generate_with_model(
     histogram instead of the generator's narrow default — the fix for the
     under-produced charge tails.
     """
-    import json
 
     import torch
 
@@ -128,65 +125,6 @@ def generate_with_model(
         charge=charge,
     )
     return sequences
-
-
-def _score_with_classifier(sequences: list[str], *, device: str = "cpu") -> list[float] | None:
-    """Score sequences using the trained activity classifier.
-
-    Loads the Phase-2 binary classifier from checkpoint/reward/ and returns
-    activity probabilities (0=inactive, 1=active). Falls back to None if no
-    classifier is found, so generate.py can use the property heuristic instead.
-    """
-    import json
-
-    from amp_challenge_2027.config import REWARD_DIR
-
-    ckpt_path = REWARD_DIR / "classifier.pt"
-    config_path = REWARD_DIR / "config.json"
-    if not ckpt_path.exists() or not config_path.exists():
-        return None
-
-    import torch
-    from torch import nn
-    from transformers import AutoModel, AutoTokenizer
-
-    config = json.loads(config_path.read_text())
-    esm_id = config["esm_model"]
-    tokenizer = AutoTokenizer.from_pretrained(esm_id)
-    esm = AutoModel.from_pretrained(esm_id).to(device).eval()
-    hidden = esm.config.hidden_size
-
-    class _Classifier(nn.Module):
-        def __init__(self, hidden_size: int):
-            super().__init__()
-            self.dense = nn.Linear(hidden_size, hidden_size)
-            self.act = nn.GELU()
-            self.drop = nn.Dropout(0.2)
-            self.classifier = nn.Linear(hidden_size, 1)
-
-        def forward(self, input_ids, attention_mask):
-            out = self.esm(input_ids=input_ids, attention_mask=attention_mask)
-            mask = attention_mask.unsqueeze(-1).float()
-            pooled = (out.last_hidden_state * mask).sum(1) / mask.sum(1).clamp(min=1.0)
-            x = self.drop(self.act(self.dense(pooled)))
-            x = self.drop(self.act(self.dense(x)))
-            return self.classifier(x).squeeze(-1)
-
-    model = _Classifier(hidden)
-    model.esm = esm
-    model.load_state_dict(torch.load(ckpt_path, map_location=device))
-    model.to(device).eval()
-
-    scores: list[float] = []
-    batch_size = 64
-    with torch.no_grad():
-        for start in range(0, len(sequences), batch_size):
-            batch = sequences[start : start + batch_size]
-            enc = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=52).to(device)
-            logits = model(enc["input_ids"], enc["attention_mask"])
-            probs = torch.sigmoid(logits).cpu().numpy()
-            scores.extend(probs.tolist())
-    return scores
 
 
 def generate_fallback(n_sequences: int, *, seed: int, length: int) -> list[str]:
@@ -262,31 +200,147 @@ def main() -> None:
             "from config.json when trained with --conditioning charge)."
         ),
     )
+    parser.add_argument(
+        "--pool",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Raw candidate FASTA to rerank instead of sampling (repeatable, one per "
+            "generator checkpoint). When set, no model inference runs."
+        ),
+    )
+    parser.add_argument(
+        "--pool-cap-per-source",
+        type=int,
+        default=0,
+        help="Cap candidates taken per --pool source after a seeded shuffle (0 = unlimited).",
+    )
+    parser.add_argument(
+        "--w-activity", type=float, default=DEFAULT_WEIGHTS["activity"],
+        help="composite-score weight for the activity classifier component",
+    )
+    parser.add_argument(
+        "--w-conformity", type=float, default=DEFAULT_WEIGHTS["conformity"],
+        help="composite-score weight for the property-conformity density component",
+    )
+    parser.add_argument(
+        "--w-precision", type=float, default=DEFAULT_WEIGHTS["precision"],
+        help="composite-score weight for the embedding kNN precision proxy",
+    )
+    parser.add_argument(
+        "--conformity-sample",
+        type=int,
+        default=12000,
+        help="reference sequences subsampled for the KDE density estimate (0 = all)",
+    )
+    parser.add_argument(
+        "--precision-esm",
+        type=str,
+        default="facebook/esm2_t6_8M_UR50D",
+        help="ESM-2 model for the precision proxy embeddings (8M fast, 650M fidelity)",
+    )
+    parser.add_argument(
+        "--novelty-candidates",
+        type=int,
+        default=2000,
+        help=(
+            "score-ranked shortlist size fed to novelty screening + diversity "
+            "selection (0 = screen the whole pool; much slower)"
+        ),
+    )
     args = parser.parse_args()
 
     np.random.seed(args.seed)  # belt-and-suspenders for any global-RNG callers
 
-    # --- 1. Generate raw candidates ----------------------------------------
-    # Detect a trained model: <checkpoint>/config.json (+ weights).
-    use_model = (
-        _torch_available()
-        and args.checkpoint.exists()
-        and (args.checkpoint / "config.json").exists()
-    )
-
-    # --- 2. Load reference set (for no-overlap + novelty) ------------------
+    # --- 0. Reference set (for no-overlap, novelty, and conformity) --------
     reference_set: set[str] = set()
     if ANTIBACTERIAL_FASTA.exists():
         reference_set = read_reference_set(ANTIBACTERIAL_FASTA)
-        print(f"[generate] loaded {len(reference_set)} reference sequences for novelty checks")
+        print(f"[generate] loaded {len(reference_set)} reference sequences for filtering/scoring")
     else:
         print(f"[generate] WARNING: {ANTIBACTERIAL_FASTA} missing; skipping overlap/novelty checks")
 
-    # Oversample in rounds until the CLEAN library hits the target size.
-    # Each round generates 2× the shortfall, filters, and accumulates.
-    # This is critical for the validator's 50k requirement — the rejection
-    # rate varies with model quality and repetition penalty.
+    # --- 1. Raw candidates: pool files (blend/rerank) or model sampling -----
     target = args.n_sequences
+    if args.pool:
+        all_sequences = load_pool_fastas(
+            args.pool, cap_per_source=args.pool_cap_per_source, seed=args.seed
+        )
+        print(f"[generate] {len(all_sequences)} raw candidates from {len(args.pool)} pool file(s)")
+    else:
+        # Detect a trained model: <checkpoint>/config.json (+ weights).
+        use_model = (
+            _torch_available()
+            and args.checkpoint.exists()
+            and (args.checkpoint / "config.json").exists()
+        )
+        all_sequences = _sample_candidates(args, use_model, reference_set, target)
+
+    clean = clean_candidates(all_sequences, reference_set)
+    print(
+        f"[generate] {len(clean)} clean candidates "
+        f"(valid + unique + no exact overlap; from {len(all_sequences)} raw)"
+    )
+
+    # --- 2. Composite scoring -----------------------------------------------
+    scorer = build_composite_scorer(
+        sorted(reference_set),
+        w_activity=args.w_activity,
+        w_conformity=args.w_conformity,
+        w_precision=args.w_precision,
+        device=args.device,
+        conformity_sample=args.conformity_sample,
+        precision_esm_model=args.precision_esm,
+        seed=args.seed,
+    ) if (args.w_conformity or args.w_activity or args.w_precision) else None
+    combined, parts = score_candidates(scorer, clean)
+    if scorer is None:
+        print("[generate] no scoring components available; ranking by diversity only")
+
+    # --- 3. Final selection ---------------------------------------------------
+    result = select_library_and_top(
+        clean,
+        reference_set=reference_set,
+        scores=combined,
+        top_k=args.top_k,
+        library_size=target,
+        seed=args.seed,
+        max_novelty_candidates=args.novelty_candidates,
+    )
+    print(
+        f"[generate] selection: {len(result.library)} in library, "
+        f"{len(result.top)} in top"
+    )
+
+    # --- 4. Write outputs --------------------------------------------------
+    library_path = args.out_dir / "library.fasta"
+    top_path = args.out_dir / "top.fasta"
+    write_fasta(result.library, library_path)
+    write_fasta(result.top, top_path)
+    print(f"[generate] wrote {len(result.library)} sequences → {library_path}")
+    print(f"[generate] wrote top {len(result.top)} sequences → {top_path}")
+
+    if len(result.library) < args.n_sequences:
+        print(
+            f"[generate] WARNING: library has {len(result.library)} < {args.n_sequences}; "
+            "consider increasing --n-sequences or adding --pool files.",
+            file=sys.stderr,
+        )
+
+
+def _sample_candidates(
+    args: argparse.Namespace,
+    use_model: bool,
+    reference_set: set[str],
+    target: int,
+) -> list[str]:
+    """Sample raw candidates from the trained generator (or fallback sampler).
+
+    Oversamples in rounds until the CLEAN candidate count hits the target.
+    Each round checks the cheap validity/dedup/overlap count instead of running
+    full selection, so rounds cost almost nothing.
+    """
     all_sequences: list[str] = []
     round_idx = 0
     while True:
@@ -323,74 +377,13 @@ def main() -> None:
         all_sequences.extend(batch)
         round_idx += 1
 
-        # Check if we have enough clean sequences.
-        result = select_library_and_top(
-            all_sequences,
-            reference_set=reference_set,
-            scores=None,
-            top_k=args.top_k,
-            library_size=target,
-            seed=args.seed,
-        )
-        if len(result.library) >= target or round_idx > 6:
+        clean_count = count_clean_candidates(all_sequences, reference_set)
+        if clean_count >= target or round_idx > 6:
             break
-        print(f"[generate] round {round_idx}: {len(result.library)}/{target} clean, generating more...")
+        print(f"[generate] round {round_idx}: {clean_count}/{target} clean, generating more...")
 
     print(f"[generate] generated {len(all_sequences)} raw candidates ({round_idx} round(s))")
-
-    # --- 3. Score with trained activity classifier --------------------------
-    # Score the clean library, then build a seq→score mapping that aligns
-    # with all_sequences for the final selection pass.
-    seq_to_score: dict[str, float] | None = None
-    try:
-        lib_scores = _score_with_classifier(result.library, device=args.device)
-        if lib_scores is not None:
-            print(f"[generate] scored {len(lib_scores)} sequences with activity classifier")
-            seq_to_score = dict(zip(result.library, lib_scores))
-    except Exception as e:
-        print(f"[generate] activity classifier unavailable ({e}); using fallback scorer")
-        try:
-            from amp_challenge_2027.reward import RewardEnsemble
-
-            ensemble = RewardEnsemble.load_or_fallback(device="cpu")
-            tag = "trained reward ensemble" if ensemble.is_trained else "fallback property scorer"
-            print(f"[generate] scoring with {tag}")
-            outputs = ensemble.score_batch(result.library)
-            seq_to_score = {s: o.score for s, o in zip(result.library, outputs)}
-        except Exception as e2:
-            print(f"[generate] scoring unavailable ({e2}); ranking by diversity only")
-
-    # --- 4. Final selection with scores ------------------------------------
-    # Map scores back to all_sequences via the seq→score dict.
-    if seq_to_score is not None:
-        scores = [seq_to_score.get(s, 0.0) for s in all_sequences]
-        result = select_library_and_top(
-            all_sequences,
-            reference_set=reference_set,
-            scores=scores,
-            top_k=args.top_k,
-            library_size=target,
-            seed=args.seed,
-        )
-    print(
-        f"[generate] selection: {len(result.library)} in library, "
-        f"{len(result.top)} in top, rejected={result.rejected}"
-    )
-
-    # --- 5. Write outputs --------------------------------------------------
-    library_path = args.out_dir / "library.fasta"
-    top_path = args.out_dir / "top.fasta"
-    _write_fasta(result.library, library_path)
-    _write_fasta(result.top, top_path)
-    print(f"[generate] wrote {len(result.library)} sequences → {library_path}")
-    print(f"[generate] wrote top {len(result.top)} sequences → {top_path}")
-
-    if len(result.library) < args.n_sequences:
-        print(
-            f"[generate] WARNING: library has {len(result.library)} < {args.n_sequences}; "
-            "consider increasing --n-sequences.",
-            file=sys.stderr,
-        )
+    return all_sequences
 
 
 def _cuda_available() -> bool:

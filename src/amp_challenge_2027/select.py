@@ -13,6 +13,14 @@ embeddings, so the random 25-peptide experimental draw is protected against
 landing on a narrow cluster. With an ESM-2 embedder available this uses cosine
 distance; without one it falls back to sequence-length-normalized Hamming,
 which is deterministic and dependency-free for the inference path.
+
+Scalability contract: the two expensive screens — Levenshtein novelty against
+the ~39k reference set and the O(N²) farthest-point distance matrix — run on a
+**score-ranked shortlist** (default top 2000 by surrogate score) rather than the
+full ~50k pool. When the candidate set fits the shortlist budget the result is
+identical to screening everything; larger pools simply rank first and screen
+the head, which bounds memory (~16 MB) and runtime while preserving the top of
+the reward distribution where the top-100 lives.
 """
 
 from __future__ import annotations
@@ -30,6 +38,11 @@ from amp_challenge_2027.config import (
     TOP_SIMILARITY_THRESHOLD,
 )
 from amp_challenge_2027.props import is_plausible
+
+# Default budget for the score-ranked shortlist that feeds the novelty screen
+# and farthest-point selection (see module docstring). ≤0 disables shortlisting.
+DEFAULT_NOVELTY_CANDIDATES = 2000
+
 
 # ---------------------------------------------------------------------------
 # Validity (mirrors scripts/verify_submission.py exactly)
@@ -75,6 +88,25 @@ def filter_plausible(sequences: list[str]) -> list[str]:
 def remove_exact_overlap(sequences: list[str], reference: set[str]) -> list[str]:
     """Drop any sequence that exactly matches a known antibacterial peptide."""
     return [seq for seq in sequences if seq not in reference]
+
+
+def clean_candidates(sequences: list[str], reference: set[str]) -> list[str]:
+    """Validity + dedup + exact-overlap removal, order-preserving.
+
+    This is the "cheap" funnel every candidate passes before any expensive
+    scoring/screening; idempotent on already-clean input.
+    """
+    return remove_exact_overlap(filter_valid(sequences), reference)
+
+
+def count_clean_candidates(sequences: list[str], reference: set[str]) -> int:
+    """Number of candidates surviving ``clean_candidates`` — without building it.
+
+    Used by the oversampling round loop in ``generate.py`` to decide when
+    enough raw material exists — without paying for plausibility, novelty, or
+    diversity selection on every round.
+    """
+    return len(remove_exact_overlap(filter_valid(sequences), reference))
 
 
 # ---------------------------------------------------------------------------
@@ -252,41 +284,57 @@ def select_library_and_top(
     apply_plausibility_to_top: bool = True,
     top_embeddings: np.ndarray | None = None,
     seed: int = 42,
+    max_novelty_candidates: int = DEFAULT_NOVELTY_CANDIDATES,
 ) -> SelectionResult:
     """Full selection pipeline producing the compliant library + ranked top-k.
 
     Steps:
       1. Validity filter (alphabet, length, dedup).
       2. No-overlap filter (drop exact known antibacterials) → library.
-      3. For the top-k: plausibility + novelty (≤80% identity) filters.
+      3. For the top-k: plausibility filter, then a score-ranked shortlist
+         (``max_novelty_candidates``; ≤0 = unlimited) that bounds the cost of
+         the novelty screen and the farthest-point distance matrix.
       4. Rank by score (descending); farthest-point diversity selection.
 
     ``scores`` are higher-is-better surrogate scores. If absent, a uniform
-    score is used and selection is purely diversity-driven.
+    score is used and selection is purely diversity-driven (stable order).
     """
     n_raw = len(raw_sequences)
     valid = filter_valid(raw_sequences, drop_duplicates=True)
     library = remove_exact_overlap(valid, reference_set)
     library = library[:library_size]
 
-    # Candidate pool for the top-k: valid + (optionally) plausible + novel.
-    pool = library
-    if apply_plausibility_to_top:
-        pool = filter_plausible(pool)
-    pool = filter_novel(pool, reference_set)
-
+    # Map scores onto sequences (first occurrence wins; duplicates share one).
     if scores is None:
-        scores_arr = np.zeros(len(raw_sequences), dtype=np.float32)
+        scores_arr = np.zeros(n_raw, dtype=np.float32)
     else:
         scores_arr = np.asarray(scores, dtype=np.float32)
-    # Map scores back onto the library order.
+        if len(scores_arr) != n_raw:
+            raise ValueError(f"scores length {len(scores_arr)} != sequences length {n_raw}")
     seq_to_score: dict[str, float] = {}
-    valid_set = set(valid)
     for seq, sc in zip(raw_sequences, scores_arr):
-        if seq in valid_set and seq not in seq_to_score:
+        if seq not in seq_to_score:
             seq_to_score[seq] = float(sc)
 
-    pool_scores = [seq_to_score.get(seq, 0.0) for seq in pool]
+    # Candidate pool for the top-k: valid + (optionally) plausible.
+    pool_pre = library
+    if apply_plausibility_to_top:
+        pool_pre = filter_plausible(pool_pre)
+
+    # Score-ranked shortlist before the expensive screens. Stable argsort on
+    # negated scores keeps original (generation) order among ties, so the
+    # result is a pure function of (inputs, seed).
+    pre_scores = np.array([seq_to_score.get(s, 0.0) for s in pool_pre], dtype=np.float64)
+    order = np.argsort(-pre_scores, kind="stable")
+    if max_novelty_candidates is not None and max_novelty_candidates > 0:
+        order = order[:max_novelty_candidates]
+    pool = [pool_pre[i] for i in order]
+    pool_scores = [float(pre_scores[i]) for i in order]
+
+    pool = filter_novel(pool, reference_set)
+    # Novelty screening may drop entries; realign scores with the survivors.
+    pool_scores = [seq_to_score.get(s, 0.0) for s in pool]
+
     if pool:
         idx = farthest_point_select(pool, pool_scores, min(top_k, len(pool)), seed=seed)
         top = [pool[i] for i in idx]
@@ -307,6 +355,8 @@ __all__ = [
     "filter_valid",
     "filter_plausible",
     "remove_exact_overlap",
+    "clean_candidates",
+    "count_clean_candidates",
     "is_novel_top",
     "filter_novel",
     "farthest_point_select",

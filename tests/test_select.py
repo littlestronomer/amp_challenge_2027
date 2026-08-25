@@ -7,7 +7,10 @@ They do NOT depend on torch/transformers, so they run in the minimal dev env.
 
 from __future__ import annotations
 
+import numpy as np
+
 from amp_challenge_2027.select import (
+    count_clean_candidates,
     filter_valid,
     is_novel_top,
     is_valid_sequence,
@@ -86,3 +89,65 @@ def test_select_determinism_same_seed():
     r2 = select_library_and_top(raw, reference_set=reference, top_k=5, seed=42)
     assert r1.top == r2.top
     assert r1.library == r2.library
+
+
+# ---------------------------------------------------------------------------
+# Scalability contract: score-ranked shortlist before novelty/FPS
+# ---------------------------------------------------------------------------
+
+
+def _plausible_pool(n: int) -> list[str]:
+    """n distinct seeded sequences that all pass props.is_plausible."""
+    from amp_challenge_2027.props import is_plausible
+
+    rng = np.random.default_rng(11)
+    alphabet = list("ACDEFGHIKLMNPQRSTVWY")
+    # AMP-like composition: cationic + hydrophobic enriched, no extreme tails.
+    weights = np.array([
+        2, 1, 1, 1, 1, 2, 1, 2, 4, 4, 1, 1, 1, 1, 3, 2, 2, 3, 0.5, 0.5,
+    ])
+    weights /= weights.sum()
+    seqs, seen = [], set()
+    while len(seqs) < n:
+        seq = "".join(rng.choice(alphabet, size=int(rng.integers(10, 17)), p=weights))
+        if seq in seen or not is_plausible(seq):
+            continue
+        seen.add(seq)
+        seqs.append(seq)
+    return seqs
+
+
+def test_count_clean_candidates():
+    raw = ["KLLAKLLAKL", "BADSEQ!", "KLLAKLLAKL", "A" * 4, "GHIKLMNPQRST"]
+    ref = {"GHIKLMNPQRST"}
+    assert count_clean_candidates(raw, ref) == 1  # dedup keeps one KLLAKLLAKL;
+    # GHIKLMNPQRST overlaps the reference and is dropped.
+    assert count_clean_candidates(["KLLAKLLAKL"], set()) == 1
+
+
+def test_shortlist_equivalent_when_budget_exceeds_pool():
+    raw = _plausible_pool(30)
+    scores = np.linspace(0, 1, len(raw))
+    big = select_library_and_top(
+        raw, reference_set=set(), scores=scores, top_k=10,
+        library_size=100, seed=0, max_novelty_candidates=1000,
+    )
+    exact = select_library_and_top(
+        raw, reference_set=set(), scores=scores, top_k=10,
+        library_size=100, seed=0, max_novelty_candidates=0,  # unlimited
+    )
+    assert big.library == exact.library
+    assert big.top == exact.top
+
+
+def test_shortlist_restricts_top_to_high_scores():
+    raw = _plausible_pool(40)
+    scores = np.linspace(0.0, 1.0, len(raw))  # later indices score higher
+    result = select_library_and_top(
+        raw, reference_set=set(), scores=scores, top_k=5,
+        library_size=200, seed=0, max_novelty_candidates=6,
+    )
+    shortlisted = {raw[i] for i in range(len(raw) - 6, len(raw))}
+    assert result.top, "expected a non-empty top list"
+    for s in result.top:
+        assert s in shortlisted
