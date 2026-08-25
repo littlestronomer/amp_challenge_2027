@@ -147,6 +147,19 @@ def read_reference_set(path: Path | str) -> set[str]:
     return {seq for _, seq in iter_fasta(path)}
 
 
+def write_fasta(sequences: list[str], path: Path | str, *, header_prefix: str = "seq") -> None:
+    """Write sequences as a FASTA file with stable ``>{prefix}{i}`` headers.
+
+    Writing order is the list order; callers guarantee that order is a pure
+    function of (seed, inputs), so output is reproducible byte-for-byte.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        for i, seq in enumerate(sequences, start=1):
+            f.write(f">{header_prefix}{i}\n{seq}\n")
+
+
 # ---------------------------------------------------------------------------
 # DBAASP parsing (strain-level MIC + hemolysis)
 # ---------------------------------------------------------------------------
@@ -429,6 +442,7 @@ __all__ = [
     "iter_fasta",
     "read_fasta_records",
     "read_reference_set",
+    "write_fasta",
     "parse_mic_value",
     "normalize_species",
     "parse_dbaasp_csv",
