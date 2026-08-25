@@ -1,19 +1,24 @@
-"""Download MarLys AMP database and DBAASP v3 into ``data/raw/``.
+"""Download AMP training data into ``data/raw/<source>/``.
 
 Run:  uv run --extra ml python scripts/fetch_data.py [--marlys-only | --dbaasp-only]
+      uv run --extra ml python scripts/fetch_data.py --source dramp --url <direct-file-url>
 
 Datasets:
-  - MarLys (CC-0, ~102k peptides)  → data/raw/marlys/
+  - MarLys (CC-0, ~102k peptides)   → data/raw/marlys/
   - DBAASP v3 (CC BY 4.0, MIC data) → data/raw/dbaasp/
+  - Extra generative sources (DRAMP/APD/…) → data/raw/<source>/
 
-These are explicit network fetches, never done at import time. After fetching,
-run ``scripts/build_datasets.py`` (or ``amp_challenge_2027.data.build_datasets``)
-to produce the curated parquet/csv artifacts in ``data/processed/``.
+Honesty note on URLs: most AMP databases serve downloads through click-mediated
+pages (DRAMP V5's download page, APD3, dbAMP) without stable direct file URLs.
+This fetcher therefore (a) tries the registered direct URLs where they exist,
+(b) unzips automatically when a zip arrives, and (c) tells you exactly which
+page to visit and which directory to drop the file into when automation can't
+work. After fetching anything, run
+``scripts/build_expanded_generative.py`` — it ingests every FASTA found under
+``data/raw/**`` plus DBAASP sequences already processed.
 
-NOTE on DBAASP: the public download is a web export; column names vary. The
-parser in ``amp_challenge_2027.data`` tolerates header aliasing. If the REST
-API (https://dbaasp.org/api?page=rest) is preferred, a paginated fetcher can be
-added here later — left as an extension point for your collaborator.
+After fetching, run ``scripts/build_datasets.py`` (MarLys + DBAASP curated
+artifacts) and/or ``scripts/build_expanded_generative.py`` (merged corpus).
 """
 
 from __future__ import annotations
@@ -26,10 +31,33 @@ from pathlib import Path
 
 from amp_challenge_2027.config import RAW_DATA_DIR
 
-MARLYS_ZENODO_URL = "https://data.mendeley.com/public-files/datasets/w4hb5grjwb/files/c7e1f9a0-3f5b-4f7e-9c8a-1b2c3d4e5f6a/file_downloaded"  # placeholder; see note
 MARLYS_MENDELEY_DATASET = "https://data.mendeley.com/datasets/w4hb5grjwb/3"
+# Direct file URL changes between Mendeley record versions; override via
+# --marlys-url. The default below is intentionally NOT fabricated.
+MARLYS_URL_DEFAULT = ""
+
 DBAASP_PEPTIDES_URL = "https://dbaasp.org/files/peptides.csv"  # adjust to current export
 DBAASP_ACTIVITY_URL = "https://dbaasp.org/files/activity.csv"
+
+# Human pages for click-mediated sources; drop the downloaded FASTA/zip under
+# data/raw/<source>/ and build_expanded_generative.py picks it up.
+MANUAL_SOURCES: dict[str, dict[str, str]] = {
+    "dramp": {
+        "page": "https://dramp.cpu-bioinfor.org/downloads/",
+        "drop": "general-dataset FASTA/zip → data/raw/dramp/",
+        "license": "CC BY 4.0",
+    },
+    "apd": {
+        "page": "https://aps.unmc.edu/AP/",
+        "drop": "sequence dump → data/raw/apd/",
+        "license": "free for research; cite APD3 publication",
+    },
+    "dbamp": {
+        "page": "https://awi.cuhk.edu.cn/dbAMP/",
+        "drop": "FASTA export → data/raw/dbamp/",
+        "license": "check site terms",
+    },
+}
 
 
 def _download(url: str, dest: Path, *, timeout: float = 60.0) -> Path:
@@ -53,21 +81,24 @@ def _download(url: str, dest: Path, *, timeout: float = 60.0) -> Path:
     return dest
 
 
-def fetch_marlys(out_dir: Path | None = None) -> Path:
-    """Download MarLys AMP database.
-
-    The Mendeley Data record (DOI 10.17632/w4hb5grjwb.3) hosts a FASTA dump.
-    The exact file URL changes between record versions; if the direct link
-    fails, visit ``MARLYS_MENDELEY_DATASET`` in a browser and point --marlys-url
-    at the FASTA download.
-    """
+def fetch_marlys(out_dir: Path | None = None, *, url: str | None = None) -> Path:
+    """Download MarLys AMP database (or instruct manual download)."""
     out_dir = out_dir or (RAW_DATA_DIR / "marlys")
     dest = out_dir / "marlys.fasta"
-    _download(MARLYS_ZENODO_URL, dest)
-    # Some dumps are zipped; unzip if so.
-    if _maybe_unzip(dest, out_dir):
-        pass
-    print(f"[fetch] MarLys FASTA at {dest}")
+    effective_url = url or MARLYS_URL_DEFAULT
+    if not effective_url:
+        print(
+            "[fetch] MarLys: no direct URL registered (record URLs change per "
+            f"version).\n"
+            f"        Visit {MARLYS_MENDELEY_DATASET}\n"
+            f"        then re-run with --marlys-url <direct FASTA link>, or place\n"
+            f"        the file manually at {dest}"
+        )
+        return dest
+    _download(effective_url, dest)
+    _maybe_unzip(dest, out_dir)
+    if dest.exists() and dest.stat().st_size > 0:
+        print(f"[fetch] MarLys FASTA at {dest}")
     return dest
 
 
@@ -95,22 +126,38 @@ def _maybe_unzip(path: Path, out_dir: Path) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Download MarLys + DBAASP training data.")
+    parser = argparse.ArgumentParser(description="Download AMP training data.")
     parser.add_argument("--marlys-only", action="store_true")
     parser.add_argument("--dbaasp-only", action="store_true")
     parser.add_argument("--marlys-url", default=None, help="override MarLys FASTA URL")
+    parser.add_argument(
+        "--source", choices=sorted(MANUAL_SOURCES),
+        help="print manual-download instructions for a click-mediated source",
+    )
+    parser.add_argument(
+        "--url", default=None,
+        help="direct file URL to download (used with --source or alone)",
+    )
     args = parser.parse_args()
+
+    if args.source:
+        info = MANUAL_SOURCES[args.source]
+        print(f"[fetch] {args.source}: open {info['page']}")
+        print(f"        download the dataset, then {info['drop']}")
+        print(f"        license: {info['license']}")
+        if args.url:
+            out_dir = RAW_DATA_DIR / args.source
+            dest = _download(args.url, out_dir / Path(args.url).split("?")[0].rsplit("/", 1)[-1])
+            _maybe_unzip(dest, out_dir)
+            print(f"[fetch] saved under {out_dir}; build_expanded_generative.py will ingest it")
+        return
 
     do_marlys = not args.dbaasp_only
     do_dbaasp = not args.marlys_only
 
-    if args.marlys_url:
-        global MARLYS_ZENODO_URL
-        MARLYS_ZENODO_URL = args.marlys_url
-
     try:
         if do_marlys:
-            fetch_marlys()
+            fetch_marlys(url=args.marlys_url)
         if do_dbaasp:
             fetch_dbaasp()
     except Exception as e:
