@@ -92,5 +92,5 @@ def main(argv: list[str] | None = None) -> None:
         print(f"\n[eval] wrote {args.out}")
 
 
-if __name__ == "__main":
+if __name__ == "__main__":
     main()
