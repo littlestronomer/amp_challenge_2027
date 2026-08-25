@@ -176,8 +176,9 @@ def main(argv: list[str] | None = None) -> None:
 
             print(f"[sweep] loading eval embedder {args.esm_model}...")
             embedder = sm.models.ESM2(model_name=args.esm_model, device=args.device)
-            metric_objs = build_metric_list(sorted(reference_set), embedder)
-            metric_names = [n for n, _ in metric_objs]
+            metric_pairs = build_metric_list(sorted(reference_set), embedder)
+            metric_names = [n for n, _ in metric_pairs]
+            metric_objs = [m for _, m in metric_pairs]
             print(f"[sweep] {len(metric_objs)} protocol metrics: {metric_names}")
         except ImportError as e:
             print(f"[sweep] seqme unavailable ({e}); writing libraries without metrics")
