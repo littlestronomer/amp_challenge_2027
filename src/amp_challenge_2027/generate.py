@@ -78,21 +78,54 @@ def generate_with_model(
     n_sequences: int, *, seed: int, length: int, device: str, checkpoint_dir: Path,
     temperature: float = 1.0, top_k: int = 50, top_p: float = 0.9,
     repetition_penalty: float = 1.2,
+    reference_set: set[str] | None = None,
+    charge_conditioned: bool | None = None,
 ) -> list[str]:
-    """Sample from the trained custom generator. Requires the [ml] extra."""
+    """Sample from the trained custom generator. Requires the [ml] extra.
+
+    ``charge_conditioned``: ``None`` (default) auto-detects from the
+    checkpoint's ``config.json`` (``conditioning == "charge"``). When enabled,
+    per-sequence charge bins are drawn from the *reference* charge distribution
+    (requires ``reference_set``) so the output reproduces the reference charge
+    histogram instead of the generator's narrow default — the fix for the
+    under-produced charge tails.
+    """
+    import json
+
     import torch
 
     from amp_challenge_2027.generator import load_model, sample_sequences
 
-    model, _config = load_model(checkpoint_dir, map_location=device)
+    model, config = load_model(checkpoint_dir, map_location=device)
     model.to(device)
     model.eval()
+
+    use_charge = (
+        getattr(config, "conditioning", "none") == "charge"
+        if charge_conditioned is None
+        else charge_conditioned
+    )
+    charge: list[int] | None = None
+    if use_charge:
+        if getattr(config, "conditioning", "none") != "charge":
+            raise ValueError(
+                "charge-conditioned generation requested but the checkpoint is unconditional "
+                f"({checkpoint_dir}/config.json has conditioning != 'charge')"
+            )
+        if not reference_set:
+            raise ValueError("charge-conditioned generation requires the reference set")
+        from amp_challenge_2027.conditioning import reference_charge_proportions, sample_charge_bins
+
+        proportions = reference_charge_proportions(sorted(reference_set))
+        charge = sample_charge_bins(n_sequences, proportions, seed=seed)
+
     g = torch.Generator(device=device).manual_seed(seed)
     sequences = sample_sequences(
         model,
         n_sequences=n_sequences, device=device, max_length=length, generator=g,
         temperature=temperature, top_k=top_k, top_p=top_p,
         repetition_penalty=repetition_penalty,
+        charge=charge,
     )
     return sequences
 
@@ -219,6 +252,16 @@ def main() -> None:
         "--repetition-penalty", type=float, default=1.3,
         help="penalize repeated residues (>1.0, 1.0 to disable)",
     )
+    parser.add_argument(
+        "--charge-conditioned",
+        action="store_true",
+        default=False,
+        help=(
+            "Generate with per-sequence charge bins drawn from the reference charge "
+            "distribution (requires a charge-conditioned checkpoint; auto-detected "
+            "from config.json when trained with --conditioning charge)."
+        ),
+    )
     args = parser.parse_args()
 
     np.random.seed(args.seed)  # belt-and-suspenders for any global-RNG callers
@@ -264,6 +307,8 @@ def main() -> None:
                     top_k=args.sample_top_k,
                     top_p=args.top_p,
                     repetition_penalty=args.repetition_penalty,
+                    reference_set=reference_set or None,
+                    charge_conditioned=args.charge_conditioned or None,
                 )
             except Exception as e:
                 print(f"[generate] model inference failed ({e}); falling back to seeded sampler")

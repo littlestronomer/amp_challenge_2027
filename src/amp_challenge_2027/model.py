@@ -76,6 +76,13 @@ class DecoderConfig:
     bos_token_id: int = 1
     eos_token_id: int = 2
     tie_word_embeddings: bool = True
+    # Charge conditioning ("none" = unconditional, backward-compatible).
+    # Bin index = round(modbjellqvist_charge) - charge_min, clamped to
+    # [0, num_charge_bins). Charge range −8..+12 covers the reference (mean
+    # +2.85, σ 3.28; extremes beyond ±3σ clamp into the edge bins).
+    conditioning: str = "none"
+    num_charge_bins: int = 21
+    charge_min: int = -8
 
     @property
     def inner_size(self) -> int:
@@ -88,14 +95,17 @@ class DecoderConfig:
             self.hidden_size, self.vocab_size, self.num_layers, self.max_position_embeddings,
         )
         emb = v * h + n * h
-        # Per block: qkv (3h²) + proj (h²) + ffn (2·h·inner) + 2 LN (2h)
-        per_block = 3 * h * h + h * h + 2 * h * self.inner_size + 4 * h
+        # Per block: qkv (3h²) + proj (h²) + ffn (2·h·inner + inner + h biases)
+        # + 2 LN (2h each)
+        per_block = 3 * h * h + h * h + 2 * h * self.inner_size + self.inner_size + h + 4 * h
         total = emb + nl * per_block + 2 * h  # ln_f + (lm_head if not tied)
         if self.ffn == "moe":
             # Replace dense FFN with E experts of the same shape.
             total -= nl * 2 * h * self.inner_size
             total += nl * self.moe_num_experts * 2 * h * self.inner_size
             total += nl * h * self.moe_num_experts  # gate
+        if self.conditioning == "charge":
+            total += self.num_charge_bins * h
         return int(total)
 
     @classmethod
@@ -368,13 +378,42 @@ class PeptideDecoder(nn.Module):
             if cfg.residual == "block_attnres"
             else 0
         )
+        # Charge conditioning: one embedding table over charge bins, added to
+        # every position alongside the positional embedding (class-conditional
+        # style). ``default_charge_bin`` holds the reference-mode bin (charge
+        # +3 → bin 3 - charge_min) so an unconditioned forward() call on a
+        # conditioned model still works (generation with charge=None).
+        self.charge_emb: nn.Embedding | None = (
+            nn.Embedding(cfg.num_charge_bins, cfg.hidden_size)
+            if cfg.conditioning == "charge"
+            else None
+        )
+        if self.charge_emb is not None:
+            self.register_buffer(
+                "default_charge_bin",
+                torch.tensor(3 - cfg.charge_min, dtype=torch.long),
+                persistent=False,
+            )
 
     def forward(
-        self, input_ids: torch.Tensor, *, use_cache: bool = False, past_keys_values=None
+        self,
+        input_ids: torch.Tensor,
+        *,
+        charge: torch.Tensor | list[int] | None = None,
+        use_cache: bool = False,
+        past_keys_values=None,
     ) -> DecoderOutput:
         B, T = input_ids.shape
         pos = torch.arange(T, device=input_ids.device).unsqueeze(0)
         h = self.drop(self.tok_emb(input_ids) + self.pos_emb(pos))
+        if self.charge_emb is not None:
+            if charge is None:
+                charge_t = self.default_charge_bin.to(input_ids.device).expand(B)
+            else:
+                charge_t = torch.as_tensor(charge, device=input_ids.device, dtype=torch.long)
+                if charge_t.dim() == 0:
+                    charge_t = charge_t.expand(B)
+            h = h + self.charge_emb(charge_t)[:, None, :]
 
         sources: list[torch.Tensor] = []
         partial: torch.Tensor | None = None

@@ -92,6 +92,17 @@ def main() -> None:
         ),
     )
     parser.add_argument("--n-bins", type=int, default=20, help="bins for continuous property axes")
+    parser.add_argument(
+        "--charge-conditioned",
+        action="store_true",
+        default=False,
+        help=(
+            "Generate with per-sequence charge bins drawn from the reference charge "
+            "distribution (requires a charge-conditioned checkpoint, trained with "
+            "train_generator.py sft --conditioning charge). Widens the pool's charge "
+            "distribution to the reference — combines well with the property shaping."
+        ),
+    )
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -138,6 +149,8 @@ def main() -> None:
                     top_k=args.sample_top_k,
                     top_p=args.top_p,
                     repetition_penalty=args.repetition_penalty,
+                    reference_set=reference_set or None,
+                    charge_conditioned=args.charge_conditioned or None,
                 )
             except Exception as e:
                 print(f"[shape] model inference failed ({e}); falling back to seeded sampler")

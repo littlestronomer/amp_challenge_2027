@@ -176,6 +176,62 @@ def causal_lm_collate(pad_id: int):
     return collate
 
 
+class ChargeConditionedDataset:
+    """A torch ``Dataset`` over (tokenized sequence, charge bin) pairs.
+
+    Used by charge-conditioned SFT (``train_generator.py sft --conditioning
+    charge``). Yields ``(ids, charge_bin)``; the matching collator
+    :func:`charge_conditional_collate` pads both fields.
+    """
+
+    def __init__(
+        self,
+        sequences: list[str],
+        charge_bins: list[int],
+        tokenizer_fn,
+        max_length: int = 52,
+    ):
+        if len(sequences) != len(charge_bins):
+            raise ValueError(
+                f"sequences ({len(sequences)}) and charge_bins ({len(charge_bins)}) must align"
+            )
+        self.sequences = sequences
+        self.charge_bins = charge_bins
+        self.tokenize = tokenizer_fn
+        self.max_length = max_length
+
+    def __len__(self) -> int:
+        return len(self.sequences)
+
+    def __getitem__(self, idx: int) -> tuple[list[int], int]:
+        ids = self.tokenize(self.sequences[idx])
+        return ids[: self.max_length], self.charge_bins[idx]
+
+
+def charge_conditional_collate(pad_id: int):
+    """Collate for charge-conditioned causal LM: ``(input_ids, labels, charge)``.
+
+    Same dynamic padding + label masking as :func:`causal_lm_collate`, plus a
+    ``(B,)`` long tensor of charge bins threaded to ``model(..., charge=...)``.
+    """
+
+    def collate(batch: list[tuple[list[int], int]]):
+        import torch
+
+        L = max(len(ids) for ids, _bin in batch)
+        input_ids = torch.full((len(batch), L), pad_id, dtype=torch.long)
+        labels = torch.full((len(batch), L), -100, dtype=torch.long)
+        charge = torch.empty(len(batch), dtype=torch.long)
+        for i, (ids, cbin) in enumerate(batch):
+            n = len(ids)
+            input_ids[i, :n] = torch.tensor(ids)
+            labels[i, :n] = torch.tensor(ids)
+            charge[i] = cbin
+        return input_ids, labels, charge
+
+    return collate
+
+
 def make_dataloader(
     sequences: list[str],
     tokenizer_fn,
@@ -204,6 +260,42 @@ def make_dataloader(
         batch_size=batch_size,
         shuffle=shuffle,
         collate_fn=causal_lm_collate(pad_id),
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        generator=g,
+        drop_last=False,
+    )
+
+
+def make_charge_dataloader(
+    sequences: list[str],
+    charge_bins: list[int],
+    tokenizer_fn,
+    *,
+    batch_size: int,
+    pad_id: int,
+    max_length: int = 52,
+    num_workers: int = 0,
+    pin_memory: bool = True,
+    shuffle: bool = True,
+    seed: int = 42,
+):
+    """Build a ``DataLoader`` over (sequence, charge-bin) pairs.
+
+    Mirrors :func:`make_dataloader` but yields ``(input_ids, labels, charge)``
+    batches for ``model(input_ids, charge=charge)`` training.
+    """
+    import torch
+    from torch.utils.data import DataLoader
+
+    ds = ChargeConditionedDataset(sequences, charge_bins, tokenizer_fn, max_length=max_length)
+    g = torch.Generator()
+    g.manual_seed(seed)
+    return DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=charge_conditional_collate(pad_id),
         num_workers=num_workers,
         pin_memory=pin_memory,
         generator=g,
