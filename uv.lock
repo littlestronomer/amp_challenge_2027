@@ -130,9 +130,12 @@ name = "amp-challenge-2027"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "huggingface-hub" },
     { name = "levenshtein" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "torch" },
+    { name = "transformers" },
 ]
 
 [package.optional-dependencies]
@@ -140,16 +143,15 @@ ml = [
     { name = "accelerate" },
     { name = "biopython" },
     { name = "datasets" },
-    { name = "huggingface-hub" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "peft" },
     { name = "pyarrow" },
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "torch" },
-    { name = "transformers" },
     { name = "wandb" },
 ]
 seqme = [
@@ -167,16 +169,17 @@ requires-dist = [
     { name = "accelerate", marker = "extra == 'ml'", specifier = ">=1.0" },
     { name = "biopython", marker = "extra == 'ml'", specifier = ">=1.84" },
     { name = "datasets", marker = "extra == 'ml'", specifier = ">=3.0" },
-    { name = "huggingface-hub", marker = "extra == 'ml'", specifier = ">=0.26" },
+    { name = "huggingface-hub", specifier = ">=0.26" },
     { name = "levenshtein", specifier = ">=0.27.3" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pandas", marker = "extra == 'ml'", specifier = ">=2.2" },
     { name = "peft", marker = "extra == 'ml'", specifier = ">=0.13" },
     { name = "pyarrow", marker = "extra == 'ml'", specifier = ">=17.0" },
+    { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.5" },
     { name = "scipy", marker = "extra == 'ml'", specifier = ">=1.13" },
     { name = "seqme", extras = ["esm2", "aa-descriptors"], marker = "extra == 'seqme'", specifier = ">=0.1" },
-    { name = "torch", marker = "extra == 'ml'", specifier = ">=2.5", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "transformers", marker = "extra == 'ml'", specifier = ">=4.46" },
+    { name = "torch", specifier = ">=2.5", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "transformers", specifier = ">=4.46" },
     { name = "wandb", marker = "extra == 'ml'", specifier = ">=0.18" },
 ]
 provides-extras = ["ml", "seqme"]

@@ -122,12 +122,11 @@ uv run python scripts/blend_libraries.py --pools generate/library.fasta \
 uv run generate --n-sequences 300 --out-dir /tmp/gen-smoke
 ```
 
-## Known limitations / follow-ups (not in scope here)
+## Known limitations / follow-ups
 
-- The validator installs no extras (`uv sync`), so bare `uv run generate` still
-  falls back to the seeded sampler on a fresh clone — the torch-dependency
-  decision (Tier 3) is still open.
-- The activity component needs `checkpoint/reward/classifier.pt` (present on
-  SSH, absent on the dev machine).
-- RL trainer bugs (grad-accum wipe, dropout during rollouts, SFT-overwriting)
-  remain unfixed — Tier 2.
+- RESOLVED: torch is now a base dependency, so bare `uv run generate` runs the
+  trained model on a fresh clone. Remaining prerequisite: commit the winning
+  checkpoint (and `checkpoint/reward/classifier.pt` + `config.json`, head-only
+  format) so weights are present without network access to training artifacts.
+- RL trainer bugs were fixed on main (see commit history); flow-matching is
+  trainable again but still needs an eval comparison before it earns pool status.

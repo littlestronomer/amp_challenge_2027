@@ -206,7 +206,16 @@ class ActivityScorer:
             esm = AutoModel.from_pretrained(esm_id)
             model = ActivityClassifier(esm.config.hidden_size)
             model.esm = esm
-            model.load_state_dict(torch.load(ckpt_path, map_location=device))
+            sd = torch.load(ckpt_path, map_location=device)
+            if any(k.startswith("esm.") for k in sd):
+                # Legacy full checkpoint (backbone included).
+                model.load_state_dict(sd)
+            else:
+                # Head-only checkpoint (train_reward_classifier >= v2): backbone
+                # comes from the hub above; verify nothing unexpected is present.
+                missing, unexpected = model.load_state_dict(sd, strict=False)
+                if unexpected:
+                    raise RuntimeError(f"unexpected head keys: {sorted(unexpected)[:4]}")
             model.to(device).eval()
             return cls(model, tokenizer, device, temperature=config.get("temperature", 1.0))
         except Exception as e:

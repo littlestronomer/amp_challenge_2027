@@ -378,15 +378,27 @@ def _train_single(
 
 
 def _save_classifier(model, tokenizer, esm_model: str, unfreeze_layers: int, out_dir: Path) -> None:
+    """Save the classification HEAD only (ESM weights come from the hub).
+
+    A full state dict includes the ESM-2 backbone (~140 MB for t12) which
+    exceeds GitHub's 100 MB file limit. The backbone is rebuilt from
+    ``esm_model`` at load time; only the small head is stored (~2 MB).
+    """
     import torch
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), out_dir / "classifier.pt")
+    head_sd = {
+        k: v.detach().cpu().clone()
+        for k, v in model.state_dict().items()
+        if not k.startswith("esm.")
+    }
+    torch.save(head_sd, out_dir / "classifier.pt")
     (out_dir / "config.json").write_text(json.dumps({
         "esm_model": esm_model,
         "unfreeze_layers": unfreeze_layers,
         "type": "binary_activity_classifier",
+        "checkpoint_format": "head-only",
     }, indent=2))
 
 

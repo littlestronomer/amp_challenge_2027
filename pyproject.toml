@@ -11,6 +11,11 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "levenshtein>=0.27.3",
     "numpy>=2.2.6",
+    # Inference-time stack: bare `uv run generate` must run the TRAINED model,
+    # not a fallback sampler (the competition validator installs no extras).
+    "torch>=2.5",
+    "transformers>=4.46",
+    "huggingface-hub>=0.26",
 ]
 
 [project.scripts]
@@ -22,21 +27,19 @@ dev = [
     "ruff>=0.6",
 ]
 
-# Heavy ML dependencies are optional so the validator only installs the light
-# runtime. Install for training/inference with: uv sync --extra ml
+# Training-only dependencies (inference does not need these).
+# Install with: uv sync --extra ml
 [project.optional-dependencies]
 ml = [
-    "torch>=2.5",
-    "transformers>=4.46",
     "peft>=0.13",
     "accelerate>=1.0",
     "datasets>=3.0",
     "biopython>=1.84",
-    "huggingface-hub>=0.26",
     "scipy>=1.13",
     "pandas>=2.2",
     "pyarrow>=17.0",
     "wandb>=0.18",
+    "scikit-learn>=1.5",
 ]
 seqme = [
     # aa_descriptors pulls modlamp (Charge / Hydrophobicity / HydrophobicMoment

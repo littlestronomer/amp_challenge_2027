@@ -79,6 +79,12 @@ Install dependencies and test your script:
 uv run generate
 ```
 
+> **Note:** the base install includes `torch` + `transformers` on purpose —
+> the competition validator runs plain `uv run generate`, and that must
+> execute the trained model rather than a fallback sampler. Training-only
+> dependencies stay optional: `uv sync --extra ml` (plus `--extra seqme` for
+> local protocol scoring).
+
 Optional arguments (must have defaults):
 
 | Flag | Default | Description |
