@@ -26,10 +26,15 @@ from amp_challenge_2027.conditioning import (
     reference_charge_proportions,
     sample_charge_bins,
 )
-from amp_challenge_2027.model import DecoderConfig, PeptideDecoder, build_model, load_model, save_model
 from amp_challenge_2027.generator import sample_sequences
+from amp_challenge_2027.model import (
+    DecoderConfig,
+    PeptideDecoder,
+    build_model,
+    load_model,
+    save_model,
+)
 from amp_challenge_2027.training import ChargeConditionedDataset, charge_conditional_collate
-
 
 # ---------------------------------------------------------------------------
 # Conditioning module

@@ -23,7 +23,6 @@ from amp_challenge_2027.shape import (
     shape_library_to_reference,
 )
 
-
 # ---------------------------------------------------------------------------
 # Synthetic fixtures: unique peptides with an exact target net charge.
 # K=+1, E=-1, neutrals (G/A/S/T/P/Q/N)=0, termini cancel → charge == (#K - #E).
