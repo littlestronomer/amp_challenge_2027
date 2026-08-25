@@ -66,6 +66,23 @@ def _z(vals: np.ndarray) -> np.ndarray:
     return (vals - vals.mean()) / (sd if sd > 1e-8 else 1.0)
 
 
+def _scalarize(row: dict, name: str, val) -> None:
+    """Store a seqme metric cell as float(s); multi-value cells get ``name.N``.
+
+    Several seqme metrics return (value, deviation)-style pairs; the primary
+    value keeps the metric name so downstream tables/sorting are stable.
+    """
+    try:
+        row[name] = float(val)
+        return
+    except (TypeError, ValueError):
+        pass
+    arr = np.asarray(val, dtype=float).ravel()
+    row[name] = float(arr[0])
+    for i, v in enumerate(arr[1:], start=1):
+        row[f"{name}.{i}"] = float(v)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Composite-selection sweep.")
     parser.add_argument("--pools", type=Path, nargs="+", required=True)
@@ -233,8 +250,7 @@ def main(argv: list[str] | None = None) -> None:
 
                 df = sm.evaluate({"library": result.library}, metric_objs)
                 for name in metric_names:
-                    val = df.iloc[0][name]
-                    row[name] = float(val.item()) if hasattr(val, "item") else float(val)
+                    _scalarize(row, name, df.iloc[0][name])
             rows.append(row)
             got = {k: round(v, 4) for k, v in row.items() if k in metric_names}
             print(f"[sweep] {tag}: lib={len(result.library)} {got}")
