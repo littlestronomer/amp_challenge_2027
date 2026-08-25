@@ -5,12 +5,14 @@ each trained with a different seed so the ensemble averages out individual bias.
 
 Targets:
   - MIC head:  per-strain log-MIC regression (target = log10(mic_uM)).
-  - Hemo head: binary hemolysis classification (HC50 ≤ threshold → risky).
+    DBAASP reports species, not strains, so each measurement supervises every
+    panel head of that genus (all 20 heads get data; see build_mic_targets).
+  - Hemo head: binary hemolysis classification (HC50 ≤ ceiling → risky).
 
 Run:
-    uv run --extra ml python scripts/train_reward.py \
-        --mic data/processed/mic.csv \
-        --hemolysis data/processed/hemolysis.csv \
+    uv run --extra ml python scripts/train_reward.py \\
+        --mic data/processed/mic.csv \\
+        --hemolysis data/processed/hemolysis.csv \\
         --epochs 20
 """
 
@@ -46,52 +48,60 @@ def _load_csv_rows(path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def build_mic_targets(rows: list[dict]) -> dict[str, list[tuple[str, np.ndarray]]]:
-    """Group MIC rows by sequence → list of (sequence, strain_target_vector).
+def build_mic_targets(rows: list[dict]) -> list[tuple[str, np.ndarray]]:
+    """Group MIC rows by sequence → (sequence, strain_target_vector) pairs.
 
-    Each strain vector has log10(MIC) where available, else NaN (masked in loss).
-    Strain index comes from ``config.BACTERIAL_PANEL``.
+    Each strain vector holds log10(MIC_uM) where measurements exist, else NaN
+    (masked out of the loss). DBAASP reports target *species*, not strains, so
+    a measurement is applied to **every panel head of that genus** — this keeps
+    all 20 heads supervised (previously 8 heads received no data at all).
+    Known limitation: MDR and non-MDR strains of one genus share the same
+    target; strain-resolved data (e.g. the AIC221/AIC222 pairs) can refine this
+    later.
 
-    Your collaborator owns the binning / ceiling rules applied here. Default:
-    raw log10(MIC_uM); values above the ceiling are clamped; missing = NaN.
+    Curation rules owned by your collaborator. Default: raw log10(MIC_uM),
+    clamped at ``MIC_CEILING_UM``, non-positive values dropped (they are
+    placeholders/censoring artifacts, and log10 would fail), missing = NaN.
     """
-    genus_to_idx = {}
-    for i, (genus, _strain, _mdr) in enumerate(BACTERIAL_PANEL):
-        genus_to_idx.setdefault(genus, i)
+    from amp_challenge_2027.config import MIC_CEILING_UM
 
-    by_seq: dict[str, list[tuple[int, float]]] = defaultdict(list)
-    seqs = {}
+    genus_to_idxs: dict[str, list[int]] = defaultdict(list)
+    for i, (genus, _strain, _mdr) in enumerate(BACTERIAL_PANEL):
+        genus_to_idxs[genus].append(i)
+
+    by_seq: dict[str, list[tuple[list[int], float]]] = defaultdict(list)
     for r in rows:
         seq = r["sequence"].strip().upper()
         if not tok.is_valid_sequence(seq):
             continue
         genus = r["target_organism"].strip()
-        if genus not in genus_to_idx:
+        idxs = genus_to_idxs.get(genus)
+        if not idxs:
             continue  # organism not in our 20-strain panel
         try:
             mic = float(r["mic_value_um"])
         except (ValueError, KeyError):
             continue
-        mic = min(mic, 64.0)  # clamp at ceiling
-        by_seq[seq].append((genus_to_idx[genus], math.log10(mic + 1e-6)))
-        seqs[seq] = True
+        if mic <= 0:
+            continue  # placeholder/censored; log10 would crash
+        mic = min(mic, MIC_CEILING_UM)
+        by_seq[seq].append((idxs, math.log10(mic)))
 
     out: list[tuple[str, np.ndarray]] = []
-    for seq, pairs in by_seq.items():
+    for seq, measurements in by_seq.items():
         vec = np.full(NUM_STRAINS, np.nan, dtype=np.float32)
-        for idx, val in pairs:
-            # If multiple measurements exist for a strain, take the mean.
-            if np.isnan(vec[idx]):
-                vec[idx] = val
-            else:
-                vec[idx] = 0.5 * (vec[idx] + val)
+        for idxs, val in measurements:
+            for idx in idxs:
+                vec[idx] = val if np.isnan(vec[idx]) else 0.5 * (vec[idx] + val)
         out.append((seq, vec))
     print(f"[reward] built MIC targets for {len(out)} unique sequences")
-    return {"rows": out}
+    return out
 
 
 def build_hemo_targets(rows: list[dict]) -> list[tuple[str, int]]:
-    """Hemolysis classification targets: HC50 ≤ 100µM → risky (1)."""
+    """Hemolysis classification targets: HC50 ≤ ceiling → risky (1)."""
+    from amp_challenge_2027.config import HC50_CEILING_UM
+
     out = []
     for r in rows:
         seq = r["sequence"].strip().upper()
@@ -101,7 +111,9 @@ def build_hemo_targets(rows: list[dict]) -> list[tuple[str, int]]:
             hc = float(r["hc50_um"])
         except (ValueError, KeyError):
             continue
-        out.append((seq, 1 if hc <= 100.0 else 0))
+        if hc <= 0:
+            continue
+        out.append((seq, 1 if hc <= HC50_CEILING_UM else 0))
     print(f"[reward] built hemolysis targets for {len(out)} sequences")
     return out
 
@@ -127,16 +139,18 @@ def train_one_member(
     from torch.optim import AdamW
 
     from amp_challenge_2027.reward import build_reward_model, save_reward_model
+    from amp_challenge_2027.training import enable_determinism
 
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+    enable_determinism(seed)
 
     model, tokenizer = build_reward_model(device=device)
     hemo_by_seq = {s: y for s, y in hemo_data}
+    mic_by_seq = dict(mic_data)  # O(1) lookups instead of a scan per sample
     optimizer = AdamW([p for p in model.parameters() if p.requires_grad], lr=lr)
 
-    # Combine MIC + hemolysis into one sequence-keyed dataset.
-    all_seqs = list({s for s, _ in mic_data} | set(hemo_by_seq))
+    # Sorted union → deterministic batch composition across runs (set order
+    # depends on PYTHONHASHSEED otherwise).
+    all_seqs = sorted({s for s, _ in mic_data} | set(hemo_by_seq))
     rng = np.random.default_rng(seed)
 
     for epoch in range(epochs):
@@ -155,13 +169,15 @@ def train_one_member(
             mic_target = torch.full((len(batch_seqs), NUM_STRAINS), float("nan"), device=device)
             mic_mask = torch.zeros_like(mic_target)
             for i, s in enumerate(batch_seqs):
-                pair = next((v for ss, v in mic_data if ss == s), None)
-                if pair is not None:
-                    valid = ~np.isnan(pair)
-                    mic_target[i, valid] = torch.tensor(pair[valid], device=device)
+                vec = mic_by_seq.get(s)
+                if vec is not None:
+                    valid = ~np.isnan(vec)
+                    mic_target[i, valid] = torch.tensor(vec[valid], device=device)
                     mic_mask[i, valid] = 1.0
             mic_target = torch.nan_to_num(mic_target, nan=0.0)
-            mic_loss = ((mic_logits - mic_target) ** 2 * mic_mask).sum() / mic_mask.sum().clamp(min=1)
+            mic_loss = ((mic_logits - mic_target) ** 2 * mic_mask).sum() / mic_mask.sum().clamp(
+                min=1
+            )
 
             # Hemolysis: BCE on sequences that have a label.
             hemo_target = torch.tensor(
@@ -177,10 +193,13 @@ def train_one_member(
             loss = mic_loss + hemo_loss
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0)
             optimizer.step()
             total_loss += loss.item()
             n += 1
-        print(f"[reward] member {member_idx} epoch {epoch+1}/{epochs} loss {total_loss/max(n,1):.4f}")
+        print(
+            f"[reward] member {member_idx} epoch {epoch + 1}/{epochs} loss {total_loss / max(n, 1):.4f}"
+        )
 
     save_reward_model(model, out_dir / f"model_{member_idx}")
     print(f"[reward] saved member {member_idx} → {out_dir / f'model_{member_idx}'}")
@@ -205,10 +224,13 @@ def main() -> None:
     args = parser.parse_args()
 
     if not args.mic.exists():
-        print(f"[reward] MIC data not found: {args.mic}. Run fetch_data + build_datasets first.", file=sys.stderr)
+        print(
+            f"[reward] MIC data not found: {args.mic}. Run fetch_data + build_datasets first.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    mic = build_mic_targets(_load_csv_rows(args.mic))["rows"]
+    mic = build_mic_targets(_load_csv_rows(args.mic))
     hemo = build_hemo_targets(_load_csv_rows(args.hemolysis)) if args.hemolysis.exists() else []
     if not mic and not hemo:
         print("[reward] no supervised targets available; aborting.", file=sys.stderr)

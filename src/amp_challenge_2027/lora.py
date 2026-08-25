@@ -38,7 +38,7 @@ class LoRALinear(nn.Module):
         self.scaling = alpha / rank
         self.lora_A = nn.Parameter(torch.zeros(rank, in_f))
         self.lora_B = nn.Parameter(torch.zeros(out_f, rank))
-        nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)  # A ~ N; B = 0 → ΔW = 0
+        nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)  # uniform, matching peft; B = 0 → ΔW = 0
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -48,16 +48,28 @@ class LoRALinear(nn.Module):
         return base_out + delta
 
     def merge(self) -> nn.Linear:
-        """Fold ΔW into the base weight; return a plain Linear (no adapter)."""
+        """Fold ΔW into the base weight; return a plain Linear (no adapter).
+
+        The merged layer is created on the base weight's device (a bare
+        ``nn.Linear`` lands on CPU, which would strand GPU models mid-merge)
+        and keeps gradients disabled — the adapter is being folded away, not
+        retrained.
+        """
         with torch.no_grad():
             delta = (self.lora_B @ self.lora_A) * self.scaling
             merged = nn.Linear(
-                self.base.in_features, self.base.out_features,
+                self.base.in_features,
+                self.base.out_features,
                 bias=self.base.bias is not None,
+                device=self.base.weight.device,
+                dtype=self.base.weight.dtype,
             )
-            merged.weight.copy_(self.base.weight + delta)
+            merged.weight.copy_(self.base.weight + delta.to(self.base.weight.dtype))
             if self.base.bias is not None:
                 merged.bias.copy_(self.base.bias)
+            merged.weight.requires_grad_(False)
+            if merged.bias is not None:
+                merged.bias.requires_grad_(False)
         return merged
 
 
@@ -88,17 +100,17 @@ def inject_lora(
     for name, linear in to_replace:
         _set_submodule(model, name, LoRALinear(linear, rank=rank, alpha=alpha, dropout=dropout))
 
+    # Freeze everything that is not a LoRA adapter parameter (collected once —
+    # rescanning all modules per parameter is O(params × modules)).
+    lora_param_ids = set()
+    for mod in model.modules():
+        if isinstance(mod, LoRALinear):
+            lora_param_ids.add(id(mod.lora_A))
+            lora_param_ids.add(id(mod.lora_B))
     for p in model.parameters():
-        if not _is_lora_param(p, model):
+        if id(p) not in lora_param_ids:
             p.requires_grad = False
     return model
-
-
-def _is_lora_param(param: nn.Parameter, model: nn.Module) -> bool:
-    for _name, mod in model.named_modules():
-        if isinstance(mod, LoRALinear) and (param is mod.lora_A or param is mod.lora_B):
-            return True
-    return False
 
 
 def _set_submodule(root: nn.Module, dotted_name: str, new_module: nn.Module) -> None:

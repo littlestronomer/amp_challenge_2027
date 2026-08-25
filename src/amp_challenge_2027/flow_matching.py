@@ -20,9 +20,10 @@ Known risk (same as AMP-Diffusion): the embedding→sequence decode is lossy.
 ``decode_sequences`` uses argmax over the LM head now; a round-trip consistency
 loss and constrained decoding are the planned upgrade.
 
-Defaults sized for ~100k peptides: 4 layers × 256 hidden × 4 heads (~3M params
-for the denoiser, on top of frozen ESM-2 8M embeddings). Increase if using a
-larger ESM-2 backbone.
+Defaults sized for ~100k peptides: the module's own defaults are modest
+(4 layers × 256 hidden × 4 heads); ``scripts/train_flow_matching.py`` trains a
+larger 8-layer × 512-hidden variant by default. Scale either way depending on
+corpus size.
 """
 
 from __future__ import annotations
@@ -74,14 +75,21 @@ class FlowMatchingConfig:
 class FlowDenoiser(nn.Module):
     """Predicts the velocity v(x_t, t) ∈ R^{L×d}.
 
-    A small transformer over the (L, esm_dim) embedding sequence, with time
-    ``t`` injected via a sinusoidal MLP and optional class conditioning for
-    classifier-free guidance.
+    A small transformer over the (L, esm_dim) embedding sequence, with a
+    (learnable) positional embedding — without it the transformer is
+    permutation-equivariant over residue positions and cannot represent
+    position-dependent structure — time ``t`` injected via a sinusoidal MLP,
+    and optional class conditioning for classifier-free guidance.
+
+    CFG null class: when ``cfg.num_classes`` is set, the embedding table has
+    ``num_classes + 1`` rows; index ``NULL_CLASS_INDEX`` is the learned
+    "unconditional" label. Training drops conditions to this index (never to a
+    real class), and inference uses it for the unconditional branch.
 
     Inputs:
         x_t   — (B, L, esm_dim) noisy embeddings
         t     — (B,) flow time in [0, 1]
-        cond  — (B,) optional class label, or None for unconditional
+        cond  — (B,) optional class label (or NULL_CLASS_INDEX), or None
     Output:
         v     — (B, L, esm_dim) predicted velocity (= x_1 - x_0 under OT-CFM)
     """
@@ -90,14 +98,16 @@ class FlowDenoiser(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.in_proj = nn.Linear(cfg.esm_embed_dim, cfg.hidden_size)
+        self.pos_emb = nn.Embedding(cfg.max_length, cfg.hidden_size)
         self.out_proj = nn.Linear(cfg.hidden_size, cfg.esm_embed_dim)
         self.time_mlp = nn.Sequential(
             nn.Linear(cfg.hidden_size, cfg.hidden_size),
             nn.GELU(),
             nn.Linear(cfg.hidden_size, cfg.hidden_size),
         )
+        self.null_class_index: int | None = cfg.num_classes if cfg.num_classes is not None else None
         self.class_emb = (
-            nn.Embedding(cfg.num_classes, cfg.hidden_size)
+            nn.Embedding(cfg.num_classes + 1, cfg.hidden_size)
             if cfg.num_classes is not None
             else None
         )
@@ -116,9 +126,7 @@ class FlowDenoiser(nn.Module):
     def _time_embedding(self, t: torch.Tensor) -> torch.Tensor:
         """Sinusoidal time embedding of shape (B, hidden), before the MLP."""
         half = self.cfg.hidden_size // 2
-        freqs = torch.exp(
-            -np.log(10000) * torch.arange(half, device=t.device) / max(half - 1, 1)
-        )
+        freqs = torch.exp(-np.log(10000) * torch.arange(half, device=t.device) / max(half - 1, 1))
         args = t.unsqueeze(-1) * freqs.unsqueeze(0)
         return torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
 
@@ -129,6 +137,8 @@ class FlowDenoiser(nn.Module):
         cond: torch.Tensor | None = None,
     ) -> torch.Tensor:
         h = self.in_proj(x_t)  # (B, L, hidden)
+        pos = torch.arange(x_t.shape[1], device=x_t.device)
+        h = h + self.pos_emb(pos).unsqueeze(0)
         t_emb = self.time_mlp(self._time_embedding(t)).unsqueeze(1)  # (B, 1, hidden)
         h = h + t_emb
         if self.class_emb is not None and cond is not None:
@@ -143,6 +153,16 @@ def build_denoiser(cfg: FlowMatchingConfig) -> FlowDenoiser:
     return FlowDenoiser(cfg)
 
 
+def _uncond_cond(denoiser: FlowDenoiser, like: torch.Tensor) -> torch.Tensor | None:
+    """The unconditional conditioning tensor for CFG (learned null class).
+
+    Returns None when the denoiser has no class embedding at all.
+    """
+    if denoiser.class_emb is None or denoiser.null_class_index is None:
+        return None
+    return torch.full_like(like, denoiser.null_class_index)
+
+
 # ---------------------------------------------------------------------------
 # Flow matching core: training objective and sampling
 # ---------------------------------------------------------------------------
@@ -154,12 +174,21 @@ def ot_cfm_loss(
     *,
     cond: torch.Tensor | None = None,
     cfg_cond_drop: float = 0.1,
+    mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Optimal-transport conditional flow matching loss.
 
     Given data x_1 and noise x_0 ~ N(0,I), the OT path is
         x_t = (1-t) x_0 + t x_1
     with target velocity u_t = x_1 - x_0. We train v_θ to predict u_t.
+
+    ``mask`` — optional (B, L) float/bool of valid positions. Padding positions
+    (whose embeddings are just ESM's <pad> representation, not data) are
+    excluded from the MSE; without this the velocity field is trained on — and
+    at inference decodes from — padding junk.
+
+    CFG conditioning drops use the denoiser's learned null class (never a real
+    class), matching the unconditional branch used at inference.
     """
     B = x_1.shape[0]
     t = torch.rand(B, device=x_1.device)
@@ -168,10 +197,17 @@ def ot_cfm_loss(
     target_v = x_1 - x_0
 
     if cond is not None and cfg_cond_drop > 0:
-        drop = torch.rand(B, device=x_1.device) < cfg_cond_drop
-        cond = cond.masked_fill(drop, 0)
+        null = _uncond_cond(denoiser, cond)
+        if null is not None:
+            drop = torch.rand(B, device=x_1.device) < cfg_cond_drop
+            cond = torch.where(drop, null, cond)
 
     pred_v = denoiser(x_t, t, cond)
+    if mask is not None:
+        # Mean squared error over VALID elements only (all D dims).
+        mask_f = mask.to(pred_v.dtype).unsqueeze(-1)  # (B, L, 1)
+        denom = (mask_f.sum() * pred_v.shape[-1]).clamp(min=1.0)
+        return ((pred_v - target_v) ** 2 * mask_f).sum() / denom
     return nn.functional.mse_loss(pred_v, target_v)
 
 
@@ -185,7 +221,12 @@ def integrate_flow(
     cfg_scale: float = 0.0,
     generator: torch.Generator | None = None,
 ) -> torch.Tensor:
-    """Euler-integrate the flow from noise to data. Returns x_1 approximations."""
+    """Euler-integrate the flow from noise to data. Returns x_1 approximations.
+
+    CFG convention: ``v = v_uncond + cfg_scale · (v_cond − v_uncond)`` — so
+    ``cfg_scale = 0`` is pure unconditional and 1.0 is pure conditional (the
+    usual classifier-free-guidance parameterization).
+    """
     device = torch.device(device)
     x = torch.randn(shape, device=device, generator=generator)
     dt = 1.0 / num_steps
@@ -193,8 +234,12 @@ def integrate_flow(
         t = torch.full((shape[0],), i * dt, device=device)
         if cfg_scale > 0 and cond is not None:
             v_cond = denoiser(x, t, cond)
-            v_uncond = denoiser(x, t, None)
-            v = (1 + cfg_scale) * v_cond - cfg_scale * v_uncond
+            null = _uncond_cond(denoiser, cond)
+            if null is not None:
+                v_uncond = denoiser(x, t, null)
+                v = v_uncond + cfg_scale * (v_cond - v_uncond)
+            else:
+                v = v_cond  # no class embedding trained → nothing to guide away from
         else:
             v = denoiser(x, t, cond)
         x = x + v * dt
@@ -241,21 +286,37 @@ _ESM_ID_TO_AA = {4 + i: aa for i, aa in enumerate(_ESM_AA_ORDER)}
 
 
 def decode_sequences(
-    embeddings: torch.Tensor, model_id: str, *, device: str = "cpu"
+    embeddings: torch.Tensor,
+    model_id: str,
+    *,
+    device: str = "cpu",
+    lengths: list[int] | None = None,
 ) -> list[str]:
     """Decode embeddings → sequences via the ESM-2 LM head (argmax).
 
     This is the lossy step. Argmax is the AMP-Diffusion baseline's approach;
     a round-trip consistency loss + constrained decoding is the planned upgrade.
+
+    Decoding stops at the first non-residue token (previously special tokens
+    were *skipped*, silently concatenating sequence halves across predicted
+    <eos>/<pad>). If ``lengths`` is given, each sequence is additionally cut to
+    its true token length — pass the training-time lengths so padded positions
+    (which were never supervised) cannot leak residues into the output.
     """
     model, _ = load_esm2(model_id, device=device)
     lm_head = _get_esm_lm_head(model)
     logits = embeddings @ lm_head.t()  # (B, L, vocab)
     ids = logits.argmax(dim=-1)  # (B, L)
     sequences: list[str] = []
-    for row in ids.cpu().tolist():
-        seq = "".join(_ESM_ID_TO_AA.get(i, "") for i in row if i >= 4)
-        sequences.append(seq)
+    for b, row in enumerate(ids.cpu().tolist()):
+        limit = lengths[b] if lengths is not None else len(row)
+        seq_chars: list[str] = []
+        for i in row[: max(limit, 0)]:
+            aa = _ESM_ID_TO_AA.get(i)
+            if aa is None:
+                break  # first <pad>/<cls>/<eos>-ish token ends the peptide
+            seq_chars.append(aa)
+        sequences.append("".join(seq_chars))
     return sequences
 
 
@@ -306,8 +367,14 @@ def flow_generate(
     cond=None,
     cfg_scale: float = 0.0,
     generator=None,
+    lengths: list[int] | None = None,
 ) -> list[str]:
-    """End-to-end: sample noise → integrate flow → decode to sequences."""
+    """End-to-end: sample noise → integrate flow → decode to sequences.
+
+    ``lengths`` (one per sample, ≤ ``length``) cuts decoded peptides to their
+    intended sizes; without it, sequences come out at full ``length`` because
+    generated positions carry no pad semantics.
+    """
     x_1 = integrate_flow(
         denoiser,
         shape=(batch_size, length, esm_embed_dim),
@@ -317,7 +384,7 @@ def flow_generate(
         cfg_scale=cfg_scale,
         generator=generator,
     )
-    return decode_sequences(x_1, esm_model, device=device)
+    return decode_sequences(x_1, esm_model, device=device, lengths=lengths)
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +399,9 @@ def save_flow_model(denoiser: FlowDenoiser, cfg: FlowMatchingConfig, dir_path: P
     torch.save(denoiser.state_dict(), p / "denoiser.pt")
 
 
-def load_flow_model(dir_path: Path | str, *, map_location: str = "cpu") -> tuple[FlowDenoiser, FlowMatchingConfig]:
+def load_flow_model(
+    dir_path: Path | str, *, map_location: str = "cpu"
+) -> tuple[FlowDenoiser, FlowMatchingConfig]:
     p = Path(dir_path)
     cfg = FlowMatchingConfig.from_dict(json.loads((p / "config.json").read_text()))
     denoiser = FlowDenoiser(cfg)

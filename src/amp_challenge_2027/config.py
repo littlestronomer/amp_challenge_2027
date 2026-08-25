@@ -17,7 +17,9 @@ RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 CHECKPOINT_DIR = PROJECT_ROOT / "checkpoint"
 GENERATOR_DIR = CHECKPOINT_DIR / "generator"
+RL_GENERATOR_DIR = CHECKPOINT_DIR / "generator_rl"  # RL output NEVER overwrites SFT
 REWARD_DIR = CHECKPOINT_DIR / "reward"
+FLOW_MATCHING_DIR = CHECKPOINT_DIR / "flow_matching"
 ANTIBACTERIAL_FASTA = DATA_DIR / "antibacterial.fasta"
 
 # Output directory for the entry point. The validator expects:
