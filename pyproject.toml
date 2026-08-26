@@ -81,6 +81,8 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 # pytest.importorskip must run before module imports.
 "tests/test_conditioning.py" = ["E402"]
+"tests/test_conditioned_training.py" = ["E402"]
+"tests/test_train_fixes_torch.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -22,13 +22,14 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from train_generator import train_sft  # flat import via tests/conftest.py sys.path
+
 from amp_challenge_2027.conditioning import (  # noqa: E402
     reference_charge_proportions,
     sample_charge_bins,
 )
 from amp_challenge_2027.generate import generate_with_model  # noqa: E402
 from amp_challenge_2027.tokenizer import RESIDUE_TO_ID  # noqa: E402
-from scripts.train_generator import train_sft  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
