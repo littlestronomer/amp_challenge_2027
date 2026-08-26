@@ -83,6 +83,36 @@ def _scalarize(row: dict, name: str, val) -> None:
         row[f"{name}.{i}"] = float(v)
 
 
+def _collect_metrics(row: dict, df) -> None:
+    """Flatten a seqme ``evaluate`` frame into ``row``.
+
+    Frame layout (observed): index = metric names; columns = MultiIndex of
+    (group, statistic), e.g. value / deviation. The primary statistic keeps
+    the bare metric name; other statistics become ``<metric>.<stat>`` keys.
+    Metric names are taken from the FRAME — never assumed from our builder
+    labels (they drifted once already).
+    """
+    def stat_name(c) -> str:
+        return str(c[-1]).strip() if isinstance(c, tuple) else str(c)
+
+    cols = list(df.columns)
+    primary = 0
+    for i, c in enumerate(cols):
+        low = stat_name(c).lower()
+        if "value" in low or "mean" in low:
+            primary = i
+            break
+
+    for metric_name in df.index:
+        vals = df.loc[metric_name]
+        base = str(metric_name)
+        _scalarize(row, base, vals.iloc[primary])
+        for i, c in enumerate(cols):
+            if i != primary:
+                suffix = stat_name(c).replace(" ", "_")
+                _scalarize(row, f"{base}.{suffix}", vals.iloc[i])
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Composite-selection sweep.")
     parser.add_argument("--pools", type=Path, nargs="+", required=True)
@@ -180,7 +210,7 @@ def main(argv: list[str] | None = None) -> None:
 
     out_dir = args.out
     out_dir.mkdir(parents=True, exist_ok=True)
-    metric_names: list[str] = []
+    protocol_metric_names: list[str] = []  # discovered from the first eval frame
     rows: list[dict] = []
 
     embedder = None
@@ -194,9 +224,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"[sweep] loading eval embedder {args.esm_model}...")
             embedder = sm.models.ESM2(model_name=args.esm_model, device=args.device)
             metric_pairs = build_metric_list(sorted(reference_set), embedder)
-            metric_names = [n for n, _ in metric_pairs]
             metric_objs = [m for _, m in metric_pairs]
-            print(f"[sweep] {len(metric_objs)} protocol metrics: {metric_names}")
         except ImportError as e:
             print(f"[sweep] seqme unavailable ({e}); writing libraries without metrics")
 
@@ -248,11 +276,20 @@ def main(argv: list[str] | None = None) -> None:
             if metric_objs:
                 import seqme as sm
 
-                df = sm.evaluate({"library": result.library}, metric_objs)
-                for name in metric_names:
-                    _scalarize(row, name, df.iloc[0][name])
+                try:
+                    df = sm.evaluate({"library": result.library}, metric_objs)
+                except Exception as e:
+                    print(f"[sweep] WARNING: evaluation failed for {tag} ({e}); "
+                          "cell written without metrics")
+                    df = None
+                if df is not None:
+                    if not protocol_metric_names:
+                        protocol_metric_names = [str(ix) for ix in df.index]
+                        print(f"[sweep] protocol metrics discovered: "
+                              f"{len(protocol_metric_names)} — {protocol_metric_names}")
+                    _collect_metrics(row, df)
             rows.append(row)
-            got = {k: round(v, 4) for k, v in row.items() if k in metric_names}
+            got = {k: round(v, 4) for k, v in row.items() if k in protocol_metric_names}
             print(f"[sweep] {tag}: lib={len(result.library)} {got}")
 
     # --- Aggregate -----------------------------------------------------------
@@ -264,8 +301,10 @@ def main(argv: list[str] | None = None) -> None:
         writer.writerows(rows)
     print(f"[sweep] wrote {csv_path} ({len(rows)} cells)")
 
-    if metric_names:
-        sort_key = "FBD" if "FBD" in metric_names else metric_names[0]
+    if protocol_metric_names:
+        sort_key = (
+            "FBD" if "FBD" in protocol_metric_names else protocol_metric_names[0]
+        )
         printable = [r for r in rows if sort_key in r]
         printable.sort(key=lambda r: r[sort_key])
         cols = [
@@ -274,7 +313,7 @@ def main(argv: list[str] | None = None) -> None:
             *[
                 m
                 for m in ("FBD", "MMD", "Precision", "Recall", "ConformityScore", "AuthPct")
-                if m in metric_names
+                if m in protocol_metric_names
             ],
         ]
         print(f"\n=== Pareto table (sorted by {sort_key}) ===")
