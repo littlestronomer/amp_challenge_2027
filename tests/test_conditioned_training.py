@@ -59,7 +59,7 @@ def trained_checkpoint(tmp_path):
     _synthetic_csv(data_csv)
     out_dir = tmp_path / "ckpt"
     common = dict(
-        data_csv,
+        data_path=data_csv,
         epochs=3,
         batch_size=8,
         lr=3e-3,

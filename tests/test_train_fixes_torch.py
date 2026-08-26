@@ -122,19 +122,16 @@ def test_cfg_scale_one_equals_pure_conditional():
 
 def _fake_esm(monkeypatch):
     """Patch load_esm2 with a tied-embedding 'LM head' over a 24-token vocab."""
+    import types
+
     import amp_challenge_2027.flow_matching as fm
 
     vocab, dim = 24, 16
     weight = torch.randn(vocab, dim)
-
-    class FakeHead:
-        class decoder:  # noqa: N999 - mirrors ESM structure
-            weight = weight
-
-    class FakeModel:
-        lm_head = FakeHead()
-
-    monkeypatch.setattr(fm, "load_esm2", lambda *a, **k: (FakeModel(), None))
+    fake_model = types.SimpleNamespace(
+        lm_head=types.SimpleNamespace(decoder=types.SimpleNamespace(weight=weight))
+    )
+    monkeypatch.setattr(fm, "load_esm2", lambda *a, **k: (fake_model, None))
     return weight
 
 
