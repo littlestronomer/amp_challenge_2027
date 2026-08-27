@@ -101,6 +101,31 @@ def integrity_violations(before: dict[str, str], after: dict[str, str]) -> list[
     return sorted(name for name, digest in before.items() if after.get(name) != digest)
 
 
+def split_violations(
+    names: list[str], *, watch: Path, sandbox: Path
+) -> tuple[list[str], list[str]]:
+    """Classify changed files: hard (outside the sandbox) vs soft refreshes.
+
+    Files the wrapper itself wrote on a previous run live under ``sandbox``
+    (default ``--out-dir``). Replacing them with fresh content is a normal
+    refresh, not tampering — only changes OUTSIDE that zone are integrity
+    violations worthy of exit code 3.
+    """
+    try:
+        sandbox_res = sandbox.resolve()
+        watch_res = watch.resolve()
+    except OSError:
+        return names, []
+    hard, soft = [], []
+    for name in names:
+        p = (watch_res / name).resolve()
+        if p.is_relative_to(sandbox_res):
+            soft.append(name)
+        else:
+            hard.append(name)
+    return hard, soft
+
+
 # ---------------------------------------------------------------------------
 # Steps
 # ---------------------------------------------------------------------------
@@ -135,11 +160,20 @@ def _base_verdict(args) -> str:
 
 
 def _merge_expanded(args):
-    """Merged corpus into {out_dir}/generative_expanded.csv (sibling semantics)."""
+    """Merged corpus into {out_dir}/<expanded name>.csv (sibling semantics).
+
+    Strict mode (default) drops reference-overlap sequences →
+    ``generative_expanded.csv``. Superset mode (``--keep-reference-overlap``)
+    keeps them — REQUIRED for SFT continuity when the canonical corpus equals
+    the reference set, as on this project — writing
+    ``generative_expanded_superset.csv`` so the two artifacts can't be confused.
+    Returns (merged_rows, stats, out_path).
+    """
     mod = _load_builder()
+    superset = bool(args.keep_reference_overlap)
 
     reference: set[str] = set()
-    if args.antibacterial.exists() and not args.keep_reference_overlap:
+    if not superset and args.antibacterial.exists():
         reference = read_reference_set(args.antibacterial)
 
     # MarLys pool: prefer the canonical corpus when present so provenance stays
@@ -171,7 +205,8 @@ def _merge_expanded(args):
 
     merged, stats = mod.curate_and_merge([("all", flat)], exclude_reference=reference)
 
-    out_path = args.out_dir / "generative_expanded.csv"
+    out_name = "generative_expanded_superset.csv" if superset else "generative_expanded.csv"
+    out_path = args.out_dir / out_name
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
@@ -191,6 +226,12 @@ def _merge_expanded(args):
     seqs_only = [seq for seq, _ in merged]
     if seqs_only:
         print(f"\n  corpus properties: {mod._property_summary(seqs_only)}")
+    if superset:
+        print(
+            "\n  SUPERSET mode: reference-overlap sequences KEPT (SFT-continuity "
+            "artifact). Submission-time exact-overlap/novelty filters remain the "
+            "compliance gate."
+        )
     return merged, stats, out_path
 
 
@@ -267,9 +308,12 @@ def main(argv: list[str] | None = None) -> dict:
     print("\n--- step 2: merged expanded corpus ---")
     merged, stats, out_path = _merge_expanded(args)
 
-    violations = integrity_violations(before, dir_snapshot(watch))
+    changed = integrity_violations(before, dir_snapshot(watch))
+    hard, soft = split_violations(changed, watch=watch, sandbox=args.out_dir)
+    if soft:
+        print("[rebuild] sandbox refreshed (own previous outputs replaced): " + ", ".join(soft))
     status = "OK — pre-existing files byte-identical"
-    for v in violations:
+    for v in hard:
         status = "VIOLATION — pre-existing files were modified:"
         print(f"[rebuild] INTEGRITY {status} {v}")
 
@@ -277,7 +321,7 @@ def main(argv: list[str] | None = None) -> dict:
     print(f"  outputs      : {args.out_dir}/")
     if not args.skip_base:
         print("                 generative.csv (+ mic.csv / hemolysis.csv when sources exist)")
-    print(f"                 generative_expanded.csv ({len(merged)} sequences)")
+    print(f"                 {out_path.name} ({len(merged)} sequences)")
     print(f"  integrity    : {status}")
     print(f"\n[rebuild] canonical corpus untouched: {args.canonical_generative} (read-only use)")
 
@@ -286,9 +330,10 @@ def main(argv: list[str] | None = None) -> dict:
         "merge_stats": stats,
         "expanded_size": len(merged),
         "expanded_path": str(out_path),
-        "violations": violations,
+        "soft_refreshed": soft,
+        "violations": hard,
     }
-    if violations:
+    if hard:
         sys.exit(INTEGRITY_EXIT_CODE)
     return summary
 

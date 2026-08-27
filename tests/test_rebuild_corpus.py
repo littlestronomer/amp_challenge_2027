@@ -101,7 +101,7 @@ def world(tmp_path):
     return {"raw": raw, "processed": processed, "ref": tmp_path / "ref"}
 
 
-def _run(world, tmp_path, out_name):
+def _run(world, tmp_path, out_name, extra=None):
     out_dir = tmp_path / out_name
     summary = rebuild_corpus.main(
         [
@@ -116,6 +116,7 @@ def _run(world, tmp_path, out_name):
             "--antibacterial",
             str(world["ref"] / "antibacterial.fasta"),
         ]
+        + (extra or [])
     )
     return out_dir, summary
 
@@ -260,3 +261,49 @@ def test_missing_sources_degrade_gracefully(world, tmp_path):
     assert summary["base_counts"] == {}
     assert summary["expanded_size"] == 0
     assert (tmp_path / "rebuild_empty" / "generative_expanded.csv").exists()
+
+
+def test_sandbox_refresh_is_soft_not_fatal(world, tmp_path):
+    # Mirror production topology: sandbox NESTED under the watched dir.
+    out_dir, _ = _run(world, tmp_path, "processed/rebuild_soft")
+    stale = out_dir / "generative_expanded.csv"
+    stale.write_text("stale artifact from an earlier run\n")  # next run replaces it
+
+    _, summary = _run(world, tmp_path, "processed/rebuild_soft")
+    assert summary["violations"] == []  # NOT a hard violation
+    assert summary["soft_refreshed"] == ["rebuild_soft/generative_expanded.csv"]
+
+
+def test_superset_mode_keeps_reference_overlap(world, tmp_path):
+    out_dir, summary = _run(
+        world, tmp_path, "processed/rebuild_super", extra=["--keep-reference-overlap"]
+    )
+
+    # Superset artifact name; strict artifact absent in a fresh sandbox.
+    superset_csv = out_dir / "generative_expanded_superset.csv"
+    assert superset_csv.exists()
+    assert not (out_dir / "generative_expanded.csv").exists()
+
+    with open(superset_csv, newline="") as f:
+        rows = list(csv.DictReader(f))
+    got = [(r["sequence"], r["source_id"].split("_")[0]) for r in rows]
+
+    # M4/FKIGG... was excluded only because it is a reference member; with
+    # exclusion off it re-enters ONCE (its dramp copy registers as a duplicate).
+    assert ("FKIGGAVKKVLKAAKILGGV", "marlys") in got
+    assert summary["merge_stats"]["reference_overlap"] == 0
+    assert summary["merge_stats"]["duplicate"] == 5
+    assert summary["expanded_size"] == 9  # 8 strict rows + FKIGG restored
+
+    # Deterministic ordering: marlys bucket keeps FASTA order incl. recovered
+    # rows; dramp/dbaasp buckets follow after. Spot-check first/last entries.
+    assert got[0][1] == "marlys" and got[-1][1] == "dbaasp"
+
+
+def test_stale_superset_refresh_also_soft(world, tmp_path):
+    _run(world, tmp_path, "processed/rebuild_s", extra=["--keep-reference-overlap"])
+    superset_csv = tmp_path / "processed" / "rebuild_s" / "generative_expanded_superset.csv"
+    superset_csv.write_text("stale\n")
+    _, summary = _run(world, tmp_path, "processed/rebuild_s", extra=["--keep-reference-overlap"])
+    assert summary["violations"] == []
+    assert summary["soft_refreshed"] == ["rebuild_s/generative_expanded_superset.csv"]
