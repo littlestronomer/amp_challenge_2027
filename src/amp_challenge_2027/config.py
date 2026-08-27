@@ -112,6 +112,29 @@ BACTERIAL_PANEL: list[tuple[str, str, bool]] = [
 ]
 NUM_STRAINS = len(BACTERIAL_PANEL)
 
+# Panel genus → Gram type. Matches the panel's documented grouping (15
+# Gram-negative, 5 Gram-positive) so label builders and any future
+# panel-aware ranker share one taxonomy constant.
+PANEL_GENUS_TO_GRAM: dict[str, str] = {
+    # Gram-negative (15 strains, 6 genera)
+    "A. baumannii": "negative",
+    "E. cloacae": "negative",
+    "E. coli": "negative",
+    "K. pneumoniae": "negative",
+    "P. aeruginosa": "negative",
+    "S. enterica": "negative",
+    # Gram-positive (5 strains, 4 genera)
+    "B. subtilis": "positive",
+    "S. aureus": "positive",
+    "E. faecalis": "positive",
+    "E. faecium": "positive",
+}
+
+# MDR category = these 8 scored strains; keyed by strain_id from the panel.
+MDR_STRAIN_IDS: frozenset[str] = frozenset(
+    strain_id for _genus, strain_id, is_mdr in BACTERIAL_PANEL if is_mdr
+)
+
 # Phase-2 potency threshold (uM); "success" = MIC <= this value.
 MIC_SUCCESS_THRESHOLD_UM = 16.0
 MIC_CEILING_UM = 64.0

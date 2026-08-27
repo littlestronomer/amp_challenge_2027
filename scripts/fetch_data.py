@@ -9,13 +9,19 @@ Datasets:
   - Extra generative sources (DRAMP/APD/…) → data/raw/<source>/
 
 Honesty note on URLs: most AMP databases serve downloads through click-mediated
-pages (DRAMP V5's download page, APD3, dbAMP) without stable direct file URLs.
-This fetcher therefore (a) tries the registered direct URLs where they exist,
-(b) unzips automatically when a zip arrives, and (c) tells you exactly which
-page to visit and which directory to drop the file into when automation can't
-work. After fetching anything, run
-``scripts/build_expanded_generative.py`` — it ingests every FASTA found under
-``data/raw/**`` plus DBAASP sequences already processed.
+pages (APD3, dbAMP) without stable direct file URLs. DRAMP 3.0 splits are the
+exception: they download via ``download.php`` handlers (see
+``DRAMP_DIRECT_SOURCES``; the Gram-split anchors are malformed upstream, so
+those two PROBE candidate paths and fall back to exact manual instructions on
+failure). This fetcher therefore (a) tries registered direct URLs where they
+exist, (b) unzips automatically when a zip arrives, and (c) tells you exactly
+which page to visit and which directory to drop the file into when automation
+can't work. Successful downloads record provenance (url/timestamp/license/
+sha256) into ``data/raw/sources.json`` — the skeleton of the submission's
+training-data disclosure. After fetching anything, run
+``scripts/build_expanded_generative.py`` or ``scripts/rebuild_corpus.py`` —
+they ingest every FASTA found under ``data/raw/**`` plus DBAASP sequences
+already processed.
 
 After fetching, run ``scripts/build_datasets.py`` (MarLys + DBAASP curated
 artifacts) and/or ``scripts/build_expanded_generative.py`` (merged corpus).
@@ -24,10 +30,14 @@ artifacts) and/or ``scripts/build_expanded_generative.py`` (merged corpus).
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sys
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
+from urllib.parse import quote
 
 from amp_challenge_2027.config import RAW_DATA_DIR
 
@@ -56,6 +66,44 @@ MANUAL_SOURCES: dict[str, dict[str, str]] = {
         "page": "https://awi.cuhk.edu.cn/dbAMP/",
         "drop": "FASTA export → data/raw/dbamp/",
         "license": "check site terms",
+    },
+}
+
+# ---------------------------------------------------------------------------
+# DRAMP 3.0 direct downloads (CC BY 4.0)
+# Verified against the live downloads page: general + activity splits expose
+# clean `download.php?filename=...` hrefs. The Gram-split anchors are
+# MALFORMED upstream (positive has no href at all; negative hrefs truncate to
+# `Anti-Gram-_amps.*`), so those paths are PROBES — a failed/non-FASTA
+# response falls back to precise manual instructions, never to silent guesses.
+# ---------------------------------------------------------------------------
+
+DRAMP_DL_BASE = "https://dramp.cpu-bioinfor.org/download.php"
+DRAMP_CITATION = "Kang et al., DRAMP 3.0, Sci Data 6:170 (2019); CC BY 4.0"
+
+
+def _dramp_url(rel_path: str) -> str:
+    return f"{DRAMP_DL_BASE}?filename={quote('download_data/DRAMP3.0_new/' + rel_path, safe='/')}"
+
+
+DRAMP_DIRECT_SOURCES: dict[str, dict] = {
+    "dramp-general": {
+        "paths": ["general_amps.fasta"],
+        "dest": "general_amps.fasta",
+    },
+    "dramp-antibacterial": {
+        "paths": ["Antibacterial_amps.fasta"],
+        "dest": "antibacterial_amps.fasta",
+    },
+    "dramp-grampos": {
+        # probe: upstream anchor exists as visible text but its href never closes
+        "paths": ["Anti-Gram-positive_amps.fasta"],
+        "dest": "anti_gram_positive.fasta",
+    },
+    "dramp-gramneg": {
+        # probe the full name first; upstream's own truncated path is the fallback
+        "paths": ["Anti-Gram-negative_amps.fasta", "Anti-Gram-_amps.fasta"],
+        "dest": "anti_gram_negative.fasta",
     },
 }
 
@@ -111,6 +159,107 @@ def fetch_dbaasp(out_dir: Path | None = None) -> tuple[Path, Path]:
     return pep, act
 
 
+def _looks_fasta(path: Path) -> bool:
+    """Cheap content check: rejects HTML error pages / empty downloads."""
+    try:
+        head = path.read_bytes()[:4096]
+    except OSError:
+        return False
+    if not head.strip():
+        return False
+    lowered = head.lower()
+    if b"<html" in lowered or b"<!doctype" in lowered:
+        return False
+    return any(line.startswith(b">") for line in head.splitlines())
+
+
+def _record_provenance(
+    source: str,
+    url: str,
+    path: Path,
+    *,
+    license_name: str,
+    citation: str,
+    registry_path: Path | None = None,
+) -> Path:
+    """Append {url, timestamp, license, sha256, size} to data/raw/sources.json.
+
+    Deterministic JSON (sorted keys, fixed indent); re-running with the same
+    file updates the timestamp only. This registry doubles as the skeleton of
+    the full-track submission's training-data disclosure.
+    """
+    reg = Path(registry_path) if registry_path else (RAW_DATA_DIR / "sources.json")
+    entry = {
+        "url": url,
+        "retrieved_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "license": license_name,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "size_bytes": path.stat().st_size,
+        "citation": citation,
+    }
+    try:
+        registry: dict = json.loads(reg.read_text()) if reg.exists() else {}
+    except json.JSONDecodeError:
+        print(f"[fetch] WARNING: unreadable {reg}; starting a fresh registry")
+        registry = {}
+    key = f"{source}/{path.name}"
+    prev = registry.get(key)
+    if prev and prev.get("sha256") == entry["sha256"]:
+        entry["retrieved_utc"] = prev.get("retrieved_utc", entry["retrieved_utc"])
+    registry[key] = entry
+    reg.parent.mkdir(parents=True, exist_ok=True)
+    with open(reg, "w") as f:
+        json.dump(registry, f, indent=2, sort_keys=True)
+        f.write("\n")
+    print(f"[fetch] provenance recorded → {reg} ({key})")
+    return reg
+
+
+def fetch_dramp(
+    source: str, out_dir: Path | None = None, *, registry_path: Path | None = None
+) -> Path | None:
+    """Download one registered DRAMP split; manual fallback on any failure."""
+    info = DRAMP_DIRECT_SOURCES[source]
+    out_dir = out_dir or (RAW_DATA_DIR / "dramp")
+    dest = out_dir / info["dest"]
+    last_err = "no candidates"
+    for rel in info["paths"]:
+        url = _dramp_url(rel)
+        part = out_dir / (info["dest"] + ".part")
+        try:
+            _download(url, part)
+        except Exception as e:
+            print(f"[fetch] probe failed ({rel}): {e}")
+            last_err = str(e)
+            continue
+        if not _looks_fasta(part):
+            size = part.stat().st_size
+            print(
+                f"[fetch] {rel}: response is not FASTA ({size} bytes; likely an upstream error page)"
+            )
+            last_err = f"{rel}: not FASTA"
+            continue
+        part.replace(dest)
+        _record_provenance(
+            source,
+            url,
+            dest,
+            license_name="CC BY 4.0",
+            citation=DRAMP_CITATION,
+            registry_path=registry_path,
+        )
+        print(f"[fetch] DRAMP split at {dest}")
+        return dest
+    print(
+        f"[fetch] {source}: automated download unavailable ({last_err}).\n"
+        f"        Open {MANUAL_SOURCES['dramp']['page']}\n"
+        f"        Grab one of these files manually:\n"
+        + "".join(f"          - {rel}\n" for rel in info["paths"])
+        + f"        Save it as {dest}"
+    )
+    return None
+
+
 def _maybe_unzip(path: Path, out_dir: Path) -> bool:
     try:
         with open(path, "rb") as f:
@@ -131,14 +280,21 @@ def main() -> None:
     parser.add_argument("--dbaasp-only", action="store_true")
     parser.add_argument("--marlys-url", default=None, help="override MarLys FASTA URL")
     parser.add_argument(
-        "--source", choices=sorted(MANUAL_SOURCES),
-        help="print manual-download instructions for a click-mediated source",
+        "--source",
+        choices=sorted(set(MANUAL_SOURCES) | set(DRAMP_DIRECT_SOURCES)),
+        help="a click-mediated source (prints instructions) or a DRAMP split "
+        "(downloads automatically)",
     )
     parser.add_argument(
-        "--url", default=None,
+        "--url",
+        default=None,
         help="direct file URL to download (used with --source or alone)",
     )
     args = parser.parse_args()
+
+    if args.source in DRAMP_DIRECT_SOURCES:
+        fetch_dramp(args.source)
+        return
 
     if args.source:
         info = MANUAL_SOURCES[args.source]
