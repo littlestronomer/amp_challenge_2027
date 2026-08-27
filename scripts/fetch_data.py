@@ -78,7 +78,10 @@ MANUAL_SOURCES: dict[str, dict[str, str]] = {
 # response falls back to precise manual instructions, never to silent guesses.
 # ---------------------------------------------------------------------------
 
-DRAMP_DL_BASE = "https://dramp.cpu-bioinfor.org/download.php"
+# Verified live: relative anchors resolve under /downloads/ (the web-root
+# handler 404s); the server also serves FASTA with a text/html content-type,
+# so validators must inspect content, not headers.
+DRAMP_DL_BASE = "https://dramp.cpu-bioinfor.org/downloads/download.php"
 DRAMP_CITATION = "Kang et al., DRAMP 3.0, Sci Data 6:170 (2019); CC BY 4.0"
 
 
