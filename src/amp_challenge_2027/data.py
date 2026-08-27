@@ -192,7 +192,7 @@ def normalize_species(name: str) -> str:
     return ""
 
 
-_MIC_CEILING = re.compile(r"[><]=?\s*(\d+(?:\.\d+)?)")
+_MIC_CEILING = re.compile(r"([><]=?)?\s*(\d+(?:\.\d+)?)")
 _UNIT_MAP = {"µg/ml": "ug_ml", "ug/ml": "ug_ml", "µm": "uM", "um": "uM", "mcm": "uM"}
 
 
@@ -209,7 +209,7 @@ def parse_mic_value(raw: str) -> tuple[float, str] | None:
     m = _MIC_CEILING.search(raw.replace(",", "."))
     if not m:
         return None
-    val = float(m.group(1))
+    val = float(m.group(2))
     unit = "uM"
     for u in _UNIT_MAP:
         if u in raw.lower():
