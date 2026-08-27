@@ -157,3 +157,29 @@ Gaussian KDE (bandwidth `"silverman"`, 5-fold KFold, seed 0) over reference join
 - Classifier present on SSH: `checkpoint/reward/classifier.pt` + `config.json` (`facebook/esm2_t12_35M_UR50D`). Not present on dev machine.
 - eval invocation on SSH uses importlib pattern (direct `scripts/eval_official.py` produced no output).
 - Original v2 training invocation (user-reconstructed, uncertain): `--epochs 100 --patience 10` produced ppl 7.02 at seed 43, so the actual v2 budget was likely shorter (~10 epochs) to yield 9.58.
+
+## Expanded corpus (MarLys + 3,492 DRAMP net-new) — seed42, confirmed recipe
+
+`checkpoint/generator-e100_p10-expanded`, data `rebuild/generative_expanded_superset.csv`
+(42,940 rows = 39,448 canonical + 3,492 DRAMP-strict-new, length μ19.7). Val ppl 6.7
+@ epoch 57 early stop (NOT comparable across corpora — val split changed).
+
+| metric | v2 (seed42) | expanded | Δ |
+|---|---|---|---|
+| Diversity | 0.8452 | **0.8492** | +0.004 |
+| Length | 17.36±7.65 | 18.58±8.71 | +1.2 (mechanical) |
+| FBD | 0.513 | 0.581 | +0.068 worse |
+| MMD | 1.113 | 1.603 | +0.49 worse |
+| Precision | 0.909 | 0.904 | −0.005 |
+| Recall | 0.834 | 0.844 | +0.010 |
+| Conformity | 0.591 | 0.554 | −0.037 worse |
+| Authenticity | 0.750 | 0.754 | +0.004 |
+
+**Conclusion: null result.** Every delta is inside the e100/p10 seed-sweep spread
+(FBD σ 0.467, Recall σ 0.091, Conformity σ 0.042) except the length shift, which is
+mechanically explained by DRAMP's long tail (pool μ30.7). The long-tail hypothesis
+(coverage gain without conformity cost) is NOT supported: FBD/MMD/Conformity all
+moved the wrong way. Submission lineage stays v2/seed44 until the label side
+(classifier retrain on expanded DBAASP labels) shows signal.
+Library: `generate/submission-e100_p10-expanded/`; raw clean-rate 69,670/100,000
+(vs v2's multi-round flow) is the one mildly positive operational signal.
