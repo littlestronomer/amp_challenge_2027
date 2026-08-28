@@ -39,11 +39,17 @@ import hashlib
 import json
 import math
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 
 from amp_challenge_2027.conditioning import charge_modlamp
-from amp_challenge_2027.config import DATA_DIR, ESM2_MODEL, REWARD_DIR
+from amp_challenge_2027.config import (
+    DATA_DIR,
+    ESM2_MODEL,
+    MDR_PANEL_GENERA,
+    REWARD_DIR,
+)
 from amp_challenge_2027.props import hydrophobic_moment, mean_hydrophobicity
 
 EMBED_CACHE_DIR = DATA_DIR / "cache"
@@ -147,20 +153,25 @@ class ConformityScorer:
 # ---------------------------------------------------------------------------
 
 
-def _build_activity_module():
-    """Return (ActivityClassifier, torch, nn) with deferred imports."""
+def _build_activity_module(num_outputs: int = 1):
+    """Return (ActivityClassifier, torch, nn) with deferred imports.
+
+    ``num_outputs``: 1 for the binary head (forward squeezes to (B,));
+    ``len(PANEL_GENERA)`` for the panel head (forward returns (B, G)).
+    """
     import torch
     from torch import nn
 
     class ActivityClassifier(nn.Module):
-        """ESM-2 backbone + 2×dense head; mirrors train_reward_classifier.py."""
+        """ESM-2 backbone + dense head; mirrors train_reward_classifier.py."""
 
-        def __init__(self, hidden_size: int):
+        def __init__(self, hidden_size: int, n_out: int = 1):
             super().__init__()
+            self.n_out = n_out
             self.dense = nn.Linear(hidden_size, hidden_size)
             self.act = nn.GELU()
             self.drop = nn.Dropout(0.2)
-            self.classifier = nn.Linear(hidden_size, 1)
+            self.classifier = nn.Linear(hidden_size, n_out)
 
         def forward(self, input_ids, attention_mask):
             out = self.esm(input_ids=input_ids, attention_mask=attention_mask)
@@ -168,7 +179,8 @@ def _build_activity_module():
             pooled = (out.last_hidden_state * mask).sum(1) / mask.sum(1).clamp(min=1.0)
             x = self.drop(self.act(self.dense(pooled)))
             x = self.drop(self.act(self.dense(x)))
-            return self.classifier(x).squeeze(-1)
+            out = self.classifier(x)
+            return out.squeeze(-1) if self.n_out == 1 else out
 
     return ActivityClassifier, torch, nn
 
@@ -235,10 +247,119 @@ class ActivityScorer:
                 )
                 enc = {k: v.to(self._device) for k, v in enc.items()}
                 logits = self._model(enc["input_ids"], enc["attention_mask"])
-                probs[start : start + batch_size] = torch.sigmoid(
-                    logits / self._temperature
-                ).cpu().numpy()
+                probs[start : start + batch_size] = (
+                    torch.sigmoid(logits / self._temperature).cpu().numpy()
+                )
         return probs
+
+
+# ---------------------------------------------------------------------------
+# Panel breadth (genus-level multi-hot activity, MDR-weighted variant)
+# ---------------------------------------------------------------------------
+
+
+class PanelScorer:
+    """Activity-breadth components from the genus-level panel classifier.
+
+    Two composite-scorer components from ONE batched forward pass:
+      breadth      fraction of panel genera with calibrated p(active) > 0.5
+      mdr_breadth  same over the genera containing an MDR panel strain
+
+    Loads ``checkpoint/reward/classifier_panel.pt`` (trained by
+    ``train_reward_classifier.py --panel``). ``load()`` returns None when the
+    artifact is absent so composite wiring simply drops the components — the
+    validator environment and pre-training runs keep working unchanged.
+    """
+
+    name = "breadth"
+
+    def __init__(
+        self,
+        model,
+        tokenizer,
+        device: str,
+        genera: list[str],
+        mdr_genera: frozenset[str],
+        temperature: float = 1.0,
+    ) -> None:
+        self._model = model
+        self._tokenizer = tokenizer
+        self._device = device
+        self.genera = list(genera)
+        self.mdr_genera = frozenset(mdr_genera)
+        self._temperature = max(float(temperature), 1e-3)
+
+    @classmethod
+    def load(
+        cls, *, device: str = "cpu", checkpoint_dir: Path | str | None = None
+    ) -> PanelScorer | None:
+        ckpt_dir = Path(checkpoint_dir) if checkpoint_dir else REWARD_DIR
+        ckpt_path = ckpt_dir / "classifier_panel.pt"
+        config_path = ckpt_dir / "config.json"
+        if not ckpt_path.exists() or not config_path.exists():
+            return None
+        try:
+            import torch
+            from transformers import AutoModel, AutoTokenizer
+
+            config = json.loads(config_path.read_text())
+            if config.get("task") != "panel":
+                raise RuntimeError("config task != 'panel'")
+            genera = list(config["genera"])
+            PanelClassifier, _, _ = _build_activity_module(num_outputs=len(genera))
+            tokenizer = AutoTokenizer.from_pretrained(config["esm_model"])
+            esm = AutoModel.from_pretrained(config["esm_model"])
+            model = PanelClassifier(esm.config.hidden_size, len(genera))
+            model.esm = esm
+            sd = torch.load(ckpt_path, map_location=device)
+            missing, unexpected = model.load_state_dict(sd, strict=False)
+            if unexpected:
+                raise RuntimeError(f"unexpected head keys: {sorted(unexpected)[:4]}")
+            model.to(device).eval()
+            mdr = frozenset(MDR_PANEL_GENERA) & set(genera)
+            return cls(
+                model,
+                tokenizer,
+                device,
+                genera,
+                mdr,
+                temperature=config.get("temperature", 1.0),
+            )
+        except Exception as e:
+            print(f"[score] panel classifier unavailable ({e}); dropping component")
+            return None
+
+    def _probs(self, sequences: list[str]) -> np.ndarray:
+        """Calibrated per-genus probabilities, shape (N, G)."""
+        import torch
+
+        out = np.empty((len(sequences), len(self.genera)), dtype=np.float32)
+        batch_size = 64
+        with torch.no_grad():
+            for start in range(0, len(sequences), batch_size):
+                batch = sequences[start : start + batch_size]
+                enc = self._tokenizer(
+                    batch, return_tensors="pt", padding=True, truncation=True, max_length=52
+                )
+                enc = {k: v.to(self._device) for k, v in enc.items()}
+                logits = self._model(enc["input_ids"], enc["attention_mask"])
+                out[start : start + batch_size] = (
+                    torch.sigmoid(logits / self._temperature).cpu().numpy()
+                )
+        return out
+
+    def breadth(self, sequences: list[str]) -> np.ndarray:
+        if not sequences:
+            return np.zeros(0, dtype=np.float32)
+        return (self._probs(sequences) > 0.5).mean(axis=1).astype(np.float32)
+
+    def mdr_breadth(self, sequences: list[str]) -> np.ndarray:
+        if not sequences:
+            return np.zeros(0, dtype=np.float32)
+        idx = [i for i, genus in enumerate(self.genera) if genus in self.mdr_genera]
+        if not idx:
+            return np.zeros(len(sequences), dtype=np.float32)
+        return (self._probs(sequences)[:, idx] > 0.5).mean(axis=1).astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +505,7 @@ class CompositeScorer:
 __all__ = [
     "ConformityScorer",
     "ActivityScorer",
+    "PanelScorer",
     "PrecisionProxyScorer",
     "CompositeScorer",
     "_property_matrix",

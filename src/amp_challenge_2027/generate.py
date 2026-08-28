@@ -73,8 +73,15 @@ def _torch_available() -> bool:
 
 
 def generate_with_model(
-    n_sequences: int, *, seed: int, length: int, device: str, checkpoint_dir: Path,
-    temperature: float = 1.0, top_k: int = 50, top_p: float = 0.9,
+    n_sequences: int,
+    *,
+    seed: int,
+    length: int,
+    device: str,
+    checkpoint_dir: Path,
+    temperature: float = 1.0,
+    top_k: int = 50,
+    top_p: float = 0.9,
     repetition_penalty: float = 1.2,
     reference_set: set[str] | None = None,
     charge_conditioned: bool | None = None,
@@ -119,8 +126,13 @@ def generate_with_model(
     g = torch.Generator(device=device).manual_seed(seed)
     sequences = sample_sequences(
         model,
-        n_sequences=n_sequences, device=device, max_length=length, generator=g,
-        temperature=temperature, top_k=top_k, top_p=top_p,
+        n_sequences=n_sequences,
+        device=device,
+        max_length=length,
+        generator=g,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
         repetition_penalty=repetition_penalty,
         charge=charge,
     )
@@ -139,10 +151,32 @@ def generate_fallback(n_sequences: int, *, seed: int, length: int) -> list[str]:
     rng = np.random.default_rng(seed)
     # AMP-enriched alphabet: higher weight on K, R (cationic) and L, A, G, V, I.
     alphabet = list(AMINO_ACIDS)
-    weights = np.array([
-        # A  C  D  E  F  G  H  I  K  L  M  N  P  Q  R  S  T  V  W  Y
-        2, 1, 1, 1, 2, 3, 1, 2, 5, 4, 1, 1, 2, 1, 4, 2, 2, 3, 1, 1,
-    ], dtype=np.float64)
+    weights = np.array(
+        [
+            # A  C  D  E  F  G  H  I  K  L  M  N  P  Q  R  S  T  V  W  Y
+            2,
+            1,
+            1,
+            1,
+            2,
+            3,
+            1,
+            2,
+            5,
+            4,
+            1,
+            1,
+            2,
+            1,
+            4,
+            2,
+            2,
+            3,
+            1,
+            1,
+        ],
+        dtype=np.float64,
+    )
     weights /= weights.sum()
 
     sequences: list[str] = []
@@ -184,10 +218,14 @@ def main() -> None:
         help="trained generator checkpoint directory (default: checkpoint/generator)",
     )
     parser.add_argument("--temperature", type=float, default=1.0, help="sampling temperature")
-    parser.add_argument("--sample-top-k", type=int, default=50, help="top-k sampling (0 to disable)")
+    parser.add_argument(
+        "--sample-top-k", type=int, default=50, help="top-k sampling (0 to disable)"
+    )
     parser.add_argument("--top-p", type=float, default=0.9, help="nucleus sampling (0 to disable)")
     parser.add_argument(
-        "--repetition-penalty", type=float, default=1.3,
+        "--repetition-penalty",
+        type=float,
+        default=1.3,
         help="penalize repeated residues (>1.0, 1.0 to disable)",
     )
     parser.add_argument(
@@ -217,16 +255,36 @@ def main() -> None:
         help="Cap candidates taken per --pool source after a seeded shuffle (0 = unlimited).",
     )
     parser.add_argument(
-        "--w-activity", type=float, default=DEFAULT_WEIGHTS["activity"],
+        "--w-activity",
+        type=float,
+        default=DEFAULT_WEIGHTS["activity"],
         help="composite-score weight for the activity classifier component",
     )
     parser.add_argument(
-        "--w-conformity", type=float, default=DEFAULT_WEIGHTS["conformity"],
+        "--w-conformity",
+        type=float,
+        default=DEFAULT_WEIGHTS["conformity"],
         help="composite-score weight for the property-conformity density component",
     )
     parser.add_argument(
-        "--w-precision", type=float, default=DEFAULT_WEIGHTS["precision"],
+        "--w-precision",
+        type=float,
+        default=DEFAULT_WEIGHTS["precision"],
         help="composite-score weight for the embedding kNN precision proxy",
+    )
+    parser.add_argument(
+        "--w-breadth",
+        type=float,
+        default=DEFAULT_WEIGHTS["breadth"],
+        help="composite-score weight for panel activity breadth "
+        "(requires checkpoint/reward/classifier_panel.pt; 0 = off)",
+    )
+    parser.add_argument(
+        "--w-mdr",
+        type=float,
+        default=DEFAULT_WEIGHTS["mdr"],
+        help="composite-score weight for MDR-genus breadth (shares the panel "
+        "classifier forward pass with --w-breadth; 0 = off)",
     )
     parser.add_argument(
         "--conformity-sample",
@@ -284,16 +342,24 @@ def main() -> None:
     )
 
     # --- 2. Composite scoring -----------------------------------------------
-    scorer = build_composite_scorer(
-        sorted(reference_set),
-        w_activity=args.w_activity,
-        w_conformity=args.w_conformity,
-        w_precision=args.w_precision,
-        device=args.device,
-        conformity_sample=args.conformity_sample,
-        precision_esm_model=args.precision_esm,
-        seed=args.seed,
-    ) if (args.w_conformity or args.w_activity or args.w_precision) else None
+    scorer = (
+        build_composite_scorer(
+            sorted(reference_set),
+            w_activity=args.w_activity,
+            w_conformity=args.w_conformity,
+            w_precision=args.w_precision,
+            w_breadth=args.w_breadth,
+            w_mdr=args.w_mdr,
+            device=args.device,
+            conformity_sample=args.conformity_sample,
+            precision_esm_model=args.precision_esm,
+            seed=args.seed,
+        )
+        if (
+            args.w_conformity or args.w_activity or args.w_precision or args.w_breadth or args.w_mdr
+        )
+        else None
+    )
     combined, parts = score_candidates(scorer, clean)
     if scorer is None:
         print("[generate] no scoring components available; ranking by diversity only")
@@ -308,10 +374,7 @@ def main() -> None:
         seed=args.seed,
         max_novelty_candidates=args.novelty_candidates,
     )
-    print(
-        f"[generate] selection: {len(result.library)} in library, "
-        f"{len(result.top)} in top"
-    )
+    print(f"[generate] selection: {len(result.library)} in library, {len(result.top)} in top")
 
     # --- 4. Write outputs --------------------------------------------------
     library_path = args.out_dir / "library.fasta"

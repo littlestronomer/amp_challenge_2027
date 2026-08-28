@@ -135,6 +135,15 @@ MDR_STRAIN_IDS: frozenset[str] = frozenset(
     strain_id for _genus, strain_id, is_mdr in BACTERIAL_PANEL if is_mdr
 )
 
+# Ordered panel genera — the label axis for the genus-level panel classifier
+# and `score.PanelScorer`. DBAASP evidence resolves to genus only, so breadth
+# is scored at genus granularity (10 head outputs, not 20 fake strain outputs).
+PANEL_GENERA: list[str] = list(dict.fromkeys(genus for genus, _s, _m in BACTERIAL_PANEL))
+
+# Genera containing at least one MDR strain (the 8-strain MDR category,
+# approximated at genus granularity): 7 of the 10 genera.
+MDR_PANEL_GENERA: frozenset[str] = frozenset(genus for genus, _s, m in BACTERIAL_PANEL if m)
+
 # Phase-2 potency threshold (uM); "success" = MIC <= this value.
 MIC_SUCCESS_THRESHOLD_UM = 16.0
 MIC_CEILING_UM = 64.0

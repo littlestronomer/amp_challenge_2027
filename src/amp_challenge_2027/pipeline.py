@@ -27,11 +27,20 @@ from amp_challenge_2027.score import (
     ActivityScorer,
     CompositeScorer,
     ConformityScorer,
+    PanelScorer,
     PrecisionProxyScorer,
 )
 from amp_challenge_2027.select import clean_candidates as _clean
 
-DEFAULT_WEIGHTS = {"activity": 1.0, "conformity": 0.5, "precision": 0.5}
+# breadth/mdr default to 0 so today's libraries stay byte-identical; the
+# selection sweep picks real weights (see RUNBOOK_SELECTION_SWEEP.md).
+DEFAULT_WEIGHTS = {
+    "activity": 1.0,
+    "conformity": 0.5,
+    "precision": 0.5,
+    "breadth": 0.0,
+    "mdr": 0.0,
+}
 
 
 def load_pool_fastas(
@@ -78,6 +87,8 @@ def build_composite_scorer(
     w_activity: float = DEFAULT_WEIGHTS["activity"],
     w_conformity: float = DEFAULT_WEIGHTS["conformity"],
     w_precision: float = DEFAULT_WEIGHTS["precision"],
+    w_breadth: float = DEFAULT_WEIGHTS["breadth"],
+    w_mdr: float = DEFAULT_WEIGHTS["mdr"],
     device: str = "cpu",
     conformity_sample: int = 12000,
     precision_esm_model: str = ESM2_MODEL,
@@ -87,6 +98,8 @@ def build_composite_scorer(
 
     - conformity needs only numpy + a reference set.
     - activity loads ``checkpoint/reward/classifier.pt`` (None → dropped).
+    - breadth/mdr load ``checkpoint/reward/classifier_panel.pt`` (None → both
+      dropped); both weights share ONE PanelScorer forward pass per candidate.
     - precision needs torch + transformers (dropped otherwise).
 
     Returns None only when NO component survives, in which case callers fall
@@ -107,6 +120,18 @@ def build_composite_scorer(
             components.append(("activity", float(w_activity), activity.score))
         else:
             print("[pipeline] no checkpoint/reward/classifier.pt; activity component dropped")
+    if w_breadth or w_mdr:
+        panel = PanelScorer.load(device=device)
+        if panel is not None:
+            if w_breadth:
+                components.append(("breadth", float(w_breadth), panel.breadth))
+            if w_mdr:
+                components.append(("mdr", float(w_mdr), panel.mdr_breadth))
+        else:
+            print(
+                "[pipeline] no checkpoint/reward/classifier_panel.pt; "
+                "breadth/mdr components dropped"
+            )
     if w_precision and reference_seqs:
         if _torch_ready():
             precision = PrecisionProxyScorer(
