@@ -39,6 +39,7 @@ from build_activity_labels import load_mic_rows  # sibling reuse via conftest/sy
 from amp_challenge_2027 import tokenizer as tok
 from amp_challenge_2027.config import (
     MIC_SUCCESS_THRESHOLD_UM,
+    PANEL_GENERA,
     PANEL_GENUS_TO_GRAM,
     PROCESSED_DATA_DIR,
     RAW_DATA_DIR,
@@ -131,7 +132,15 @@ def aggregate_genus_mics(rows: list[dict]) -> tuple[dict[str, dict[str, float]],
             stats["bad_value"] += 1
             continue
         organism = r["target_organism"].strip()
-        genus = next((g for k, g in SPECIES_TO_PANEL.items() if k.lower() in organism.lower()), "")
+        # Two input dialects: build_datasets already normalizes to short panel
+        # genera ("E. coli"), while raw sources carry full binomials
+        # ("Escherichia coli K-12"). Accept both.
+        if organism in PANEL_GENERA:
+            genus = organism
+        else:
+            genus = next(
+                (g for k, g in SPECIES_TO_PANEL.items() if k.lower() in organism.lower()), ""
+            )
         if not genus:
             stats["unmapped_organism"] += 1
             continue

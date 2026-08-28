@@ -339,3 +339,33 @@ def test_provenance_idempotent_and_sorted(tmp_path):
     )
     raw_keys = list(json.loads(second_text).keys())
     assert raw_keys == sorted(raw_keys)
+
+
+def test_short_form_genera_from_build_datasets_are_mapped(tmp_path):
+    # mic.csv produced by build_datasets carries NORMALIZED short genera
+    # ("E. coli"), not binomials — the aggregator must accept both dialects.
+    mic = tmp_path / "mic.csv"
+    with open(mic, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["sequence", "target_organism", "mic_value_um", "unit"])
+        w.writeheader()
+        w.writerow(
+            {
+                "sequence": "KLLKLLKKLLKL",
+                "target_organism": "E. coli",
+                "mic_value_um": "2.0",
+                "unit": "uM",
+            }
+        )
+        w.writerow(
+            {
+                "sequence": "KLLKLLKKLLKL",
+                "target_organism": "P. aeruginosa",
+                "mic_value_um": "40.0",
+                "unit": "uM",
+            }
+        )
+    from build_ranking_labels import aggregate_genus_mics
+
+    genus_mics, stats = aggregate_genus_mics(list(csv.DictReader(open(mic))))
+    assert stats["unmapped_organism"] == 0
+    assert set(genus_mics["KLLKLLKKLLKL"]) == {"E. coli", "P. aeruginosa"}
