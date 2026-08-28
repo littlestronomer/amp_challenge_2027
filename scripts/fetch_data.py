@@ -94,6 +94,13 @@ DRAMP_DIRECT_SOURCES: dict[str, dict] = {
         "paths": ["general_amps.fasta"],
         "dest": "general_amps.fasta",
     },
+    "dramp-general-xlsx": {
+        # The structured table (Activity text with per-strain MIC clauses,
+        # Linear/Cyclic, Hemolytic_activity columns) — consumed by
+        # scripts/convert_dramp_xlsx.py, NOT by the fasta corpus loaders.
+        "paths": ["general_amps.xlsx"],
+        "dest": "general_amps.xlsx",
+    },
     "dramp-antibacterial": {
         "paths": ["Antibacterial_amps.fasta"],
         "dest": "antibacterial_amps.fasta",
@@ -176,6 +183,16 @@ def _looks_fasta(path: Path) -> bool:
     return any(line.startswith(b">") for line in head.splitlines())
 
 
+def _content_ok(path: Path, dest_name: str) -> bool:
+    """Format-aware validation for a downloaded DRAMP artifact."""
+    if dest_name.endswith(".xlsx"):
+        try:
+            return path.read_bytes()[:2] == b"PK" and zipfile.is_zipfile(path)
+        except OSError:
+            return False
+    return _looks_fasta(path)
+
+
 def _record_provenance(
     source: str,
     url: str,
@@ -235,12 +252,13 @@ def fetch_dramp(
             print(f"[fetch] probe failed ({rel}): {e}")
             last_err = str(e)
             continue
-        if not _looks_fasta(part):
+        if not _content_ok(part, info["dest"]):
             size = part.stat().st_size
             print(
-                f"[fetch] {rel}: response is not FASTA ({size} bytes; likely an upstream error page)"
+                f"[fetch] {rel}: response failed content validation "
+                f"({size} bytes; likely an upstream error page)"
             )
-            last_err = f"{rel}: not FASTA"
+            last_err = f"{rel}: invalid content"
             continue
         part.replace(dest)
         _record_provenance(

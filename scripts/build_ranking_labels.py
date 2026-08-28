@@ -72,7 +72,11 @@ _WATER_MW = 18.01528
 
 
 def peptide_mw(seq: str) -> float:
-    return sum(RESIDUE_AVG_MW[aa] for aa in seq) + _WATER_MW
+    # Real DRAMP/DBAASP sequences sometimes carry nonstandard residues
+    # (Z, X, B…); MW is computed over the standard subset — an approximation,
+    # but these are fuzzy measurements anyway.
+    standard = "".join(ch for ch in seq if ch in RESIDUE_AVG_MW) or "A"
+    return sum(RESIDUE_AVG_MW[aa] for aa in standard) + _WATER_MW
 
 
 def mic_to_um(value: float, unit: str, seq: str) -> tuple[float | None, str]:
@@ -290,7 +294,14 @@ def print_coverage(full_rows: list[dict], mdr_note: str = "") -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Build expanded ranking-label datasets.")
-    parser.add_argument("--mic", type=Path, default=PROCESSED_DATA_DIR / "mic.csv")
+    parser.add_argument(
+        "--mic",
+        type=Path,
+        action="append",
+        default=None,
+        help="mic.csv to aggregate (repeatable, e.g. DBAASP + mic_dramp.csv); "
+        "default: data/processed/mic.csv",
+    )
     parser.add_argument("--dramp-dir", type=Path, default=RAW_DATA_DIR / "dramp")
     parser.add_argument("--out-dir", type=Path, default=PROCESSED_DATA_DIR)
     parser.add_argument("--potent", type=float, default=4.0)
@@ -298,14 +309,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--inactive", type=float, default=32.0)
     args = parser.parse_args(argv)
 
-    if not args.mic.exists():
-        print(
-            f"[labels] MIC data missing: {args.mic}; run fetch_data + build_datasets first",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    mic_paths = args.mic or [PROCESSED_DATA_DIR / "mic.csv"]
+    for p in mic_paths:
+        if not p.exists():
+            print(
+                f"[labels] MIC data missing: {p}; run fetch_data + build_datasets first",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
-    rows = load_mic_rows(args.mic)
+    rows: list[dict] = []
+    for p in mic_paths:
+        part = load_mic_rows(p)
+        print(f"[labels] {p}: {len(part)} rows")
+        rows.extend(part)
     genus_mics, agg_stats = aggregate_genus_mics(rows)
     full_rows = build_full_rows(
         genus_mics, potent=args.potent, success=args.success, inactive=args.inactive

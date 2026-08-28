@@ -164,3 +164,40 @@ on purpose: with no panel artifact present they are dropped automatically, and
 with weights at 0 the composite score is unchanged. v1 is genus-granular (10
 outputs); strain-level resolution requires the label builder to keep strain
 tokens — future upgrade.
+
+## DBAASP — how to actually get it (v4 REST API), plus DRAMP-xlsx fallback
+
+Post-mortem (2026-08-28): the v2-era `/api/v1?query=...` endpoints from the old
+helper libraries are DEAD (POST → 403 from any network, GET → silent empty).
+The REAL docs are the Swagger iframe inside `dbaasp.org/api?page=rest`
+(DBAASP API 4.0.1, OAS 3.0, spec at `/v3/api-docs`): open endpoints
+`GET /peptides` (paginated index) and `GET /peptides/{id}` (full card with
+strain-level `targetActivities` — species/MIC/unit — and
+`hemoliticCytotoxicActivities`). The site has no bulk-download UI.
+
+Primary route (resumable, ~25k detail calls, ≈30–60 min):
+
+```bash
+uv run python scripts/fetch_dbaasp_v4.py            # writes data/raw/dbaasp/*.csv
+uv run python scripts/rebuild_corpus.py             # bootstraps rebuild/mic.csv
+uv run python scripts/build_ranking_labels.py \
+    --mic data/processed/rebuild/mic.csv | tee ~/label_yield.txt
+```
+
+Fallback/secondary (already fetchable & converted):
+
+```bash
+uv run python scripts/fetch_data.py --source dramp-general-xlsx
+uv run python scripts/convert_dramp_xlsx.py \
+    --xlsx data/raw/dramp/general_amps.xlsx --out data/processed/mic_dramp.csv
+# merge both sources in the label builder:
+uv run python scripts/build_ranking_labels.py \
+    --mic data/processed/rebuild/mic.csv --mic data/processed/mic_dramp.csv
+```
+
+DRAMP-yield reference (real run): 4,255 MIC rows / 1,054 sequences, all 10
+panel genera covered (E. coli 1261, S. aureus 1152, P. aeruginosa 783, …).
+Gotchas encoded in the converters: DRAMP's MIC text lives in the
+`Target_Organism` column; xlsx omits empty cells (parse by cell reference);
+real sequences contain nonstandard residues (peptide_mw is tolerant); DBAASP
+units are pre-normalized to "µM" strings so `parse_mic_value` can't misread.
