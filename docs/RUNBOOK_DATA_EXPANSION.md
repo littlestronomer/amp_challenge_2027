@@ -139,3 +139,28 @@ Training-data disclosure must cover every source kept in the expanded corpus.
 DRAMP is CC BY 4.0; check APD/dbAMP terms before including them in the public
 repo artifacts. If a source can't be redistributed, keep it out of the corpus
 rather than shipping an undisclosed derivative.
+
+## Panel-aware ranker (classifier v3 + breadth scoring)
+
+Once `activity_labels_full.csv` exists (section above), train the genus-level
+multi-hot panel classifier and rank by predicted activity breadth:
+
+```bash
+# 1) train (t12/35M recipe, masked BCE, temperature-calibrated, best-of-N)
+CUDA_VISIBLE_DEVICES=1 uv run --extra ml python scripts/train_reward_classifier.py \
+    --panel --ensemble-size 3 --epochs 50
+
+# 2) rank with breadth components (weights via the selection sweep, not guessed)
+uv run --extra ml python -m amp_challenge_2027.generate \
+    --pool generate/submission-v2/library.fasta \
+    --w-activity 0.5 --w-breadth 1.0 --w-mdr 0.5 \
+    --out-dir generate/panel-rerank-test
+```
+
+Artifacts: `checkpoint/reward/classifier_panel.pt` (+ config `{"task":"panel",
+"genera":[...]}` — `classifier.pt` is never touched, so the current submission
+ranking stays byte-identical). New flags `--w-breadth` / `--w-mdr` default to 0
+on purpose: with no panel artifact present they are dropped automatically, and
+with weights at 0 the composite score is unchanged. v1 is genus-granular (10
+outputs); strain-level resolution requires the label builder to keep strain
+tokens — future upgrade.
