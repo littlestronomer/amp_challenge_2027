@@ -158,7 +158,7 @@ def parse_detail(detail: dict) -> tuple[list[dict], list[dict], dict]:
             continue
         activity_rows.append(
             {
-                "peptide_id": info["dbaaspId"] or info["id"],
+                "peptide_id": info["id"],
                 "target_organism": species,
                 "concentration": normalized,
                 "assay": f"{conc} {unit}".strip(),
@@ -169,7 +169,7 @@ def parse_detail(detail: dict) -> tuple[list[dict], list[dict], dict]:
     for h in detail.get("hemoliticCytotoxicActivities") or []:
         hemo_rows.append(
             {
-                "peptide_id": info["dbaaspId"] or info["id"],
+                "peptide_id": info["id"],
                 "kind": h.get("activityType") or "",
                 "target": json.dumps(
                     h.get("targetCells") or h.get("targetSpecies") or "", ensure_ascii=False
@@ -266,6 +266,45 @@ def fetch_all(
     print(f"[dbaasp] done: {n_done} new records; artifacts in {out_dir}")
 
 
+def remap_activity_ids(out_dir: Path) -> tuple[int, int]:
+    """Repair pre-fix artifacts: activity/hemo rows keyed by "DBAASPR_*" string
+    ids get remapped to the numeric ids that peptides.csv joins on.
+
+    The id↔dbaaspId mapping comes from peptides.csv itself, so this never
+    needs the network. Returns (activity_rows_rewritten, hemolysis_rows).
+    """
+    peptides_path = out_dir / "peptides.csv"
+    if not peptides_path.exists():
+        raise SystemExit(f"[dbaasp] missing {peptides_path}; nothing to remap against")
+    with open(peptides_path, newline="") as f:
+        by_string = {
+            row["dbaasp_id"]: row["id"] for row in csv.DictReader(f) if row.get("dbaasp_id")
+        }
+
+    total_a = 0
+    for name in ("activity.csv", "hemolysis_raw.csv"):
+        path = out_dir / name
+        if not path.exists():
+            continue
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames or []
+            rows = list(reader)
+        fixed = 0
+        for row in rows:
+            if "peptide_id" in fieldnames and row["peptide_id"] in by_string:
+                row["peptide_id"] = by_string[row["peptide_id"]]
+                fixed += 1
+        with open(path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        if name == "activity.csv":
+            total_a = fixed
+        print(f"[dbaasp] {name}: remapped {fixed}/{len(rows)} rows")
+    return total_a, 0
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Fetch DBAASP v4 API → raw CSVs (resumable).")
     parser.add_argument("--out-dir", type=Path, default=Path("data/raw/dbaasp"))
@@ -273,8 +312,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--max-records", type=int, default=None, help="cap detail calls (smoke testing)"
     )
+    parser.add_argument(
+        "--repair-ids",
+        action="store_true",
+        help="remap activity/hemo peptide_id from DBAASPR_* strings to the "
+        "numeric ids peptides.csv joins on (no network); fixes artifacts "
+        "created before the id-mismatch fix",
+    )
     args = parser.parse_args(argv)
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    if args.repair_ids:
+        remap_activity_ids(args.out_dir)
+        return
     fetch_all(out_dir=args.out_dir, workers=args.workers, max_records=args.max_records)
 
 
