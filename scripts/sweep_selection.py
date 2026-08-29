@@ -108,12 +108,12 @@ def _collect_metrics(row: dict, df, *, dataset_name: str | None = None) -> list[
     cols = list(df.columns)
     names: list[str] = []
 
-    index_first = next(iter(df.index), None)
-    if (
-        cols
-        and isinstance(cols[0], tuple)
-        and not isinstance(index_first, (tuple, list))
-    ):
+    # Layout discriminator for single-dataset evaluate() calls: wide frames
+    # carry exactly ONE index row (the dataset name, e.g. 'library'); tall
+    # frames carry one row PER METRIC. Column/index dtypes alone cannot tell
+    # them apart (both use tuple columns + string index).
+    single_row = len(df.index) == 1
+    if cols and isinstance(cols[0], tuple) and single_row:
         # WIDE: one row per dataset; metric lives in the column's first level.
         by_metric: dict[str, list] = {}
         for c in cols:
