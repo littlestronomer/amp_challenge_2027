@@ -42,11 +42,17 @@ from amp_challenge_2027.pipeline import (
 from amp_challenge_2027.select import select_library_and_top
 
 
-def parse_triples(raw: str) -> list[tuple[float, float, float]]:
+def parse_triples(raw: str) -> list[tuple[float, ...]]:
+    """Grid cells: 3-tuples (activity,conformity,precision) legacy form, or
+    5-tuples (...,breadth,mdr) for panel-weighted cells."""
     cells = []
     for chunk in raw.split(";"):
-        a, c, p = (float(x) for x in chunk.split(","))
-        cells.append((a, c, p))
+        vals = tuple(float(x) for x in chunk.split(","))
+        if len(vals) not in (3, 5):
+            raise ValueError(
+                f"grid cell {chunk!r} must have 3 weights (a,c,p) or 5 (a,c,p,breadth,mdr)"
+            )
+        cells.append(vals)
     return cells
 
 
@@ -92,6 +98,7 @@ def _collect_metrics(row: dict, df) -> None:
     Metric names are taken from the FRAME — never assumed from our builder
     labels (they drifted once already).
     """
+
     def stat_name(c) -> str:
         return str(c[-1]).strip() if isinstance(c, tuple) else str(c)
 
@@ -120,7 +127,9 @@ def main(argv: list[str] | None = None) -> None:
         "--grid",
         type=str,
         default="1,0.5,0.5;1,0.5,0;1,0,0.5;0,0.5,0.5;1,0.25,0.75;1,0.75,0.25;1,1,1",
-        help="';'-separated activity,conformity,precision weight triples",
+        help="';'-separated weight cells: activity,conformity,precision "
+        "(legacy 3-tuple) or activity,conformity,precision,breadth,mdr "
+        "(5-tuple, panel-weighted; requires classifier_panel.pt)",
     )
     parser.add_argument(
         "--mixes",
@@ -180,11 +189,17 @@ def main(argv: list[str] | None = None) -> None:
     print(f"[sweep] union: {len(clean_union)} clean unique candidates")
 
     # --- Component scores computed exactly once over the union --------------
+    # breadth/mdr are requested with weight 1 purely so the components get
+    # registered and cached; per-cell weights come from the grid. When the
+    # panel artifact is absent they silently drop and 5-tuple cells just
+    # renormalize over the remaining components.
     scorer = build_composite_scorer(
         sorted(reference_set),
         w_activity=DEFAULT_WEIGHTS["activity"],
         w_conformity=DEFAULT_WEIGHTS["conformity"],
         w_precision=DEFAULT_WEIGHTS["precision"],
+        w_breadth=1.0,
+        w_mdr=1.0,
         device=args.device,
         conformity_sample=args.conformity_sample,
         precision_esm_model=args.precision_esm,
@@ -241,8 +256,17 @@ def main(argv: list[str] | None = None) -> None:
         pos = np.array([seq_pos[s] for s in mix_seqs], dtype=np.int64)
         mix_parts = {name: vals[pos] for name, vals in part_values.items()}
 
-        for wa, wc, wp in grid:
-            weights = {"activity": wa, "conformity": wc, "precision": wp}
+        for cell in grid:
+            wa, wc, wp = cell[0], cell[1], cell[2]
+            wb = cell[3] if len(cell) == 5 else 0.0
+            wm = cell[4] if len(cell) == 5 else 0.0
+            weights = {
+                "activity": wa,
+                "conformity": wc,
+                "precision": wp,
+                "breadth": wb,
+                "mdr": wm,
+            }
             combined = np.zeros(len(mix_seqs), dtype=np.float64)
             total_w = 0.0
             for name, w in weights.items():
@@ -260,7 +284,8 @@ def main(argv: list[str] | None = None) -> None:
                 seed=args.seed,
                 max_novelty_candidates=args.novelty_candidates,
             )
-            tag = f"m{mi}_w{wa:g}-{wc:g}-{wp:g}"
+            suffix = f"-{wb:g}-{wm:g}" if len(cell) == 5 else ""
+            tag = f"m{mi}_w{wa:g}-{wc:g}-{wp:g}{suffix}"
             cell_dir = out_dir / tag
             write_fasta(result.library, cell_dir / "library.fasta")
             write_fasta(result.top, cell_dir / "top.fasta")
@@ -271,6 +296,8 @@ def main(argv: list[str] | None = None) -> None:
                 "w_activity": wa,
                 "w_conformity": wc,
                 "w_precision": wp,
+                "w_breadth": wb,
+                "w_mdr": wm,
                 "library_size": len(result.library),
             }
             if metric_objs:
@@ -279,14 +306,18 @@ def main(argv: list[str] | None = None) -> None:
                 try:
                     df = sm.evaluate({"library": result.library}, metric_objs)
                 except Exception as e:
-                    print(f"[sweep] WARNING: evaluation failed for {tag} ({e}); "
-                          "cell written without metrics")
+                    print(
+                        f"[sweep] WARNING: evaluation failed for {tag} ({e}); "
+                        "cell written without metrics"
+                    )
                     df = None
                 if df is not None:
                     if not protocol_metric_names:
                         protocol_metric_names = [str(ix) for ix in df.index]
-                        print(f"[sweep] protocol metrics discovered: "
-                              f"{len(protocol_metric_names)} — {protocol_metric_names}")
+                        print(
+                            f"[sweep] protocol metrics discovered: "
+                            f"{len(protocol_metric_names)} — {protocol_metric_names}"
+                        )
                     _collect_metrics(row, df)
             rows.append(row)
             got = {k: round(v, 4) for k, v in row.items() if k in protocol_metric_names}
@@ -302,9 +333,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"[sweep] wrote {csv_path} ({len(rows)} cells)")
 
     if protocol_metric_names:
-        sort_key = (
-            "FBD" if "FBD" in protocol_metric_names else protocol_metric_names[0]
-        )
+        sort_key = "FBD" if "FBD" in protocol_metric_names else protocol_metric_names[0]
         printable = [r for r in rows if sort_key in r]
         printable.sort(key=lambda r: r[sort_key])
         cols = [

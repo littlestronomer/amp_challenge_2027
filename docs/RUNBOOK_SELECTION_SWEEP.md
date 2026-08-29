@@ -130,3 +130,31 @@ uv run generate --n-sequences 300 --out-dir /tmp/gen-smoke
   format) so weights are present without network access to training artifacts.
 - RL trainer bugs were fixed on main (see commit history); flow-matching is
   trainable again but still needs an eval comparison before it earns pool status.
+
+## Panel-weighted grid (5-tuple cells, post classifier-v3)
+
+`--grid` cells now accept either 3 weights (`activity,conformity,precision`)
+or 5 (`activity,conformity,precision,breadth,mdr`). Breadth/mdr components
+need `checkpoint/reward/classifier_panel.pt` (train via
+`train_reward_classifier.py --panel`); when absent, 5-tuple cells silently
+renormalize over the remaining components, so grids stay runnable anywhere.
+
+Panel probe grid on the box (v2 + seed44 + expanded pools; ~10 min/cell with
+eval):
+
+```bash
+CUDA_VISIBLE_DEVICES=1 uv run --extra ml --extra seqme python scripts/sweep_selection.py \
+    --pools generate/submission-v2/library.fasta \
+            generate/submission-e100_p10-seed44/library.fasta \
+            generate/submission-e100_p10-expanded/library.fasta \
+    --device cuda \
+    --grid "1,0.5,0.5,0,0;0,0.5,0.5,0,0;0.5,0.5,0.5,1,0.5;1,0.5,0.5,1,0.5;0.5,0.5,0.5,1.5,1;0,0.5,0.5,1,1;0.5,0.25,0.25,1,1" \
+    --out sweep_results/panel-weights
+```
+
+The first two 3-tuple cells re-baseline the legacy weighting under identical
+eval conditions; the 5-tuples trace the breadth frontier. `results.csv` now
+carries `w_breadth`/`w_mdr` columns. Decision rule: pick the cell that keeps
+FBD/MMD/Conformity within seed-noise of the best 3-tuple cell while
+dominating on the panel metrics (score the candidate top-100s with
+`PanelScorer` as in the rerank probe).
