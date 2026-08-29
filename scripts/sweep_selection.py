@@ -89,20 +89,53 @@ def _scalarize(row: dict, name: str, val) -> None:
         row[f"{name}.{i}"] = float(v)
 
 
-def _collect_metrics(row: dict, df) -> None:
-    """Flatten a seqme ``evaluate`` frame into ``row``.
+def _collect_metrics(row: dict, df, *, dataset_name: str | None = None) -> list[str]:
+    """Flatten a seqme ``evaluate`` frame into ``row``; returns metric names.
 
-    Frame layout (observed): index = metric names; columns = MultiIndex of
-    (group, statistic), e.g. value / deviation. The primary statistic keeps
-    the bare metric name; other statistics become ``<metric>.<stat>`` keys.
-    Metric names are taken from the FRAME — never assumed from our builder
-    labels (they drifted once already).
+    Handles BOTH observed layouts:
+      wide  — index = dataset rows (e.g. 'library'), columns = MultiIndex of
+              (metric, statistic)          [current seqme behavior]
+      tall  — index = metric names, columns = (group, statistic) MultiIndex
+
+    The primary statistic (value/mean) keeps the bare metric name; other
+    statistics become ``<metric>.<stat>`` keys. Metric names always come from
+    the FRAME — never assumed (they drifted once already).
     """
 
     def stat_name(c) -> str:
         return str(c[-1]).strip() if isinstance(c, tuple) else str(c)
 
     cols = list(df.columns)
+    names: list[str] = []
+
+    if (
+        cols
+        and isinstance(cols[0], tuple)
+        and df.index.tolist()
+        and not isinstance(df.index[0], tuple)
+    ):
+        # WIDE: one row per dataset; metric lives in the column's first level.
+        by_metric: dict[str, list] = {}
+        for c in cols:
+            by_metric.setdefault(str(c[0]), []).append(c)
+        key = dataset_name or str(df.index[0])
+        for metric, cs in by_metric.items():
+            primary = next(
+                (
+                    c
+                    for c in cs
+                    if "value" in stat_name(c).lower() or "mean" in stat_name(c).lower()
+                ),
+                cs[0],
+            )
+            _scalarize(row, metric, df.loc[key, primary])
+            for c in cs:
+                if c != primary:
+                    _scalarize(row, f"{metric}.{stat_name(c).replace(' ', '_')}", df.loc[key, c])
+            names.append(metric)
+        return names
+
+    # TALL: metric per index row.
     primary = 0
     for i, c in enumerate(cols):
         low = stat_name(c).lower()
@@ -118,6 +151,8 @@ def _collect_metrics(row: dict, df) -> None:
             if i != primary:
                 suffix = stat_name(c).replace(" ", "_")
                 _scalarize(row, f"{base}.{suffix}", vals.iloc[i])
+        names.append(base)
+    return names
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -312,13 +347,13 @@ def main(argv: list[str] | None = None) -> None:
                     )
                     df = None
                 if df is not None:
+                    discovered = _collect_metrics(row, df, dataset_name="library")
                     if not protocol_metric_names:
-                        protocol_metric_names = [str(ix) for ix in df.index]
+                        protocol_metric_names = discovered
                         print(
                             f"[sweep] protocol metrics discovered: "
                             f"{len(protocol_metric_names)} — {protocol_metric_names}"
                         )
-                    _collect_metrics(row, df)
             rows.append(row)
             got = {k: round(v, 4) for k, v in row.items() if k in protocol_metric_names}
             print(f"[sweep] {tag}: lib={len(result.library)} {got}")
