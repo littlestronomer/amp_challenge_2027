@@ -265,6 +265,7 @@ def main(argv: list[str] | None = None) -> None:
 
     embedder = None
     metric_objs: list = []
+    eval_cache: dict[str, object] = {}  # library-content-hash -> seqme frame
     if args.eval_metrics and not args.smoke:
         try:
             import seqme as sm
@@ -335,27 +336,45 @@ def main(argv: list[str] | None = None) -> None:
                 "w_mdr": wm,
                 "library_size": len(result.library),
             }
-            if metric_objs:
+            # Library metrics are identical whenever pools are exactly
+            # library-sized (selection is then score-independent), and are
+            # shared across cells of the same mix in general — cache by the
+            # library's content hash so each DISTINCT library is evaluated once.
+            import hashlib
+
+            lib_key = hashlib.sha1("\n".join(result.library).encode()).hexdigest()
+            if metric_objs and lib_key not in eval_cache:
                 import seqme as sm
 
                 try:
-                    df = sm.evaluate({"library": result.library}, metric_objs)
+                    eval_cache[lib_key] = sm.evaluate({"library": result.library}, metric_objs)
                 except Exception as e:
                     print(
                         f"[sweep] WARNING: evaluation failed for {tag} ({e}); "
                         "cell written without metrics"
                     )
-                    df = None
-                if df is not None:
-                    discovered = _collect_metrics(row, df, dataset_name="library")
-                    if not protocol_metric_names:
-                        protocol_metric_names = discovered
-                        print(
-                            f"[sweep] protocol metrics discovered: "
-                            f"{len(protocol_metric_names)} — {protocol_metric_names}"
-                        )
+                    eval_cache[lib_key] = None
+            df = eval_cache.get(lib_key)
+            if df is not None:
+                discovered = _collect_metrics(row, df, dataset_name="library")
+                if not protocol_metric_names:
+                    protocol_metric_names = discovered
+                    print(
+                        f"[sweep] protocol metrics discovered: "
+                        f"{len(protocol_metric_names)} — {protocol_metric_names}"
+                    )
+
+            # Decision-relevant per-cell signal: the composition of the TOP-K
+            # under the cached component scores (weights change this even when
+            # the library is score-independent).
+            top_pos = [seq_pos[s] for s in result.top if s in seq_pos]
+            for name in ("activity", "breadth", "mdr"):
+                if name in mix_parts and top_pos:
+                    row[f"top_{name}"] = round(float(np.mean(mix_parts[name][top_pos])), 4)
+
             rows.append(row)
-            got = {k: round(v, 4) for k, v in row.items() if k in protocol_metric_names}
+            got = {k: v for k, v in row.items() if k.startswith("top_")}
+            got.update({k: round(v, 4) for k, v in row.items() if k in protocol_metric_names})
             print(f"[sweep] {tag}: lib={len(result.library)} {got}")
 
     # --- Aggregate -----------------------------------------------------------
@@ -379,6 +398,9 @@ def main(argv: list[str] | None = None) -> None:
                 for m in ("FBD", "MMD", "Precision", "Recall", "ConformityScore", "AuthPct")
                 if m in protocol_metric_names
             ],
+            "top_activity",
+            "top_breadth",
+            "top_mdr",
         ]
         print(f"\n=== Pareto table (sorted by {sort_key}) ===")
         header = "  ".join(f"{c[:12]:>12}" for c in cols)
