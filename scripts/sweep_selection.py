@@ -108,11 +108,11 @@ def _collect_metrics(row: dict, df, *, dataset_name: str | None = None) -> list[
     cols = list(df.columns)
     names: list[str] = []
 
+    index_first = next(iter(df.index), None)
     if (
         cols
         and isinstance(cols[0], tuple)
-        and df.index.tolist()
-        and not isinstance(df.index[0], tuple)
+        and not isinstance(index_first, (tuple, list))
     ):
         # WIDE: one row per dataset; metric lives in the column's first level.
         by_metric: dict[str, list] = {}
