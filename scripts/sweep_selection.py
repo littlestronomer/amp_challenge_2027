@@ -367,7 +367,8 @@ def main(argv: list[str] | None = None) -> None:
             # Decision-relevant per-cell signal: the composition of the TOP-K
             # under the cached component scores (weights change this even when
             # the library is score-independent).
-            top_pos = [seq_pos[s] for s in result.top if s in seq_pos]
+            mix_pos = {s: i for i, s in enumerate(mix_seqs)}  # mix-local positions
+            top_pos = [mix_pos[s] for s in result.top if s in mix_pos]
             for name in ("activity", "breadth", "mdr"):
                 if name in mix_parts and top_pos:
                     row[f"top_{name}"] = round(float(np.mean(mix_parts[name][top_pos])), 4)
