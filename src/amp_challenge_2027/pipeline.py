@@ -32,14 +32,17 @@ from amp_challenge_2027.score import (
 )
 from amp_challenge_2027.select import clean_candidates as _clean
 
-# breadth/mdr default to 0 so today's libraries stay byte-identical; the
-# selection sweep picks real weights (see RUNBOOK_SELECTION_SWEEP.md).
+# Submission selection recipe (adopted 2026-08-29 from the panel-weight sweep,
+# sweep_results/panel-weights, mix m1): breadth/mdr dominate the top-100
+# composition while old-instrument activity stays within ~0.1 of the legacy
+# anchor. Components missing from the environment drop and weights
+# renormalize, so this degrades gracefully on the minimal validator env.
 DEFAULT_WEIGHTS = {
-    "activity": 1.0,
-    "conformity": 0.5,
-    "precision": 0.5,
-    "breadth": 0.0,
-    "mdr": 0.0,
+    "activity": 0.5,
+    "conformity": 0.25,
+    "precision": 0.25,
+    "breadth": 1.0,
+    "mdr": 1.0,
 }
 
 

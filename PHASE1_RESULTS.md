@@ -183,3 +183,28 @@ moved the wrong way. Submission lineage stays v2/seed44 until the label side
 (classifier retrain on expanded DBAASP labels) shows signal.
 Library: `generate/submission-e100_p10-expanded/`; raw clean-rate 69,670/100,000
 (vs v2's multi-round flow) is the one mildly positive operational signal.
+
+## Panel-aware ranking adopted (2026-08-29)
+
+Classifier v3 (genus-level, 10 outputs, ESM-2 t12/35M unfrozen-top-4) trained on
+the DBAASP-v4 labels: macro AUROC **0.863** (best of 3 seeds; per-genus
+0.80–0.89; T=4.6). Label basis: 69,461 DBAASP MIC rows → 39,216 per-genus rows,
+13,485 labeled sequences (vs 1,423 legacy) — ~10× the ranker's training signal.
+
+Weight sweep (`sweep_results/panel-weights`, mix m1 = seed44 library — best
+coverage: FBD 0.192 / MMD 0.553 / Recall 0.913):
+
+| top-100 recipe | old-binary activity | breadth | mdr |
+|---|---|---|---|
+| 1,0.5,0.5 (legacy anchor) | 0.938 | 0.365 | 0.317 |
+| **0.5,0.25,0.25,1,1 (ADOPTED)** | 0.838 | **1.000** | **1.000** |
+
+Fair-instrument verification (panel classifier probabilities on the two tops):
+mean_p 0.593 vs 0.496, mdr_p 0.591 vs 0.493, worst-genus_p **0.515 vs 0.437** —
+the adopted top dominates everywhere the 13.5k-label instrument measures; the
+anchor's higher "activity" is circular (it was selected by that 1.4k-label head).
+
+Adopted submission configuration: seed44 generator checkpoint + DEFAULT_WEIGHTS
+= {activity 0.5, conformity 0.25, precision 0.25, breadth 1, mdr 1}. The entry
+point degrades gracefully when classifier_panel.pt is absent (components drop,
+weights renormalize).

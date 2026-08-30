@@ -156,12 +156,13 @@ def test_panel_scorer_graceful_absence(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_default_weights_zero_for_new_components():
-    assert DEFAULT_WEIGHTS["breadth"] == 0.0 and DEFAULT_WEIGHTS["mdr"] == 0.0
-    # legacy keys untouched
-    assert DEFAULT_WEIGHTS["activity"] == 1.0
-    assert DEFAULT_WEIGHTS["conformity"] == 0.5
-    assert DEFAULT_WEIGHTS["precision"] == 0.5
+def test_default_weights_are_the_adopted_panel_recipe():
+    # Swept and adopted 2026-08-29 (sweep_results/panel-weights, mix m1):
+    # breadth/mdr dominate top-100 composition at ~-0.1 old-instrument activity.
+    assert DEFAULT_WEIGHTS["breadth"] == 1.0 and DEFAULT_WEIGHTS["mdr"] == 1.0
+    assert DEFAULT_WEIGHTS["activity"] == 0.5
+    assert DEFAULT_WEIGHTS["conformity"] == 0.25
+    assert DEFAULT_WEIGHTS["precision"] == 0.25
 
 
 def test_pipeline_zero_weight_matches_legacy_component_set(tmp_path, monkeypatch):
