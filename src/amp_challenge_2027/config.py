@@ -19,6 +19,9 @@ CHECKPOINT_DIR = PROJECT_ROOT / "checkpoint"
 GENERATOR_DIR = CHECKPOINT_DIR / "generator"
 RL_GENERATOR_DIR = CHECKPOINT_DIR / "generator_rl"  # RL output NEVER overwrites SFT
 REWARD_DIR = CHECKPOINT_DIR / "reward"
+# Hemolysis-risk head lives apart so its training can never collide with the
+# activity artifacts in REWARD_DIR.
+REWARD_HEMO_DIR = CHECKPOINT_DIR / "reward_hemo"
 FLOW_MATCHING_DIR = CHECKPOINT_DIR / "flow_matching"
 ANTIBACTERIAL_FASTA = DATA_DIR / "antibacterial.fasta"
 

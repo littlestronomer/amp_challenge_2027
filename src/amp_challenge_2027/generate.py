@@ -287,6 +287,13 @@ def main() -> None:
         "classifier forward pass with --w-breadth; 0 = off)",
     )
     parser.add_argument(
+        "--w-safety",
+        type=float,
+        default=DEFAULT_WEIGHTS["safety"],
+        help="composite-score weight for hemolysis SAFETY = 1 - p(risky) "
+        "(requires checkpoint/reward_hemo/classifier.pt; 0 = off)",
+    )
+    parser.add_argument(
         "--conformity-sample",
         type=int,
         default=12000,
@@ -350,13 +357,19 @@ def main() -> None:
             w_precision=args.w_precision,
             w_breadth=args.w_breadth,
             w_mdr=args.w_mdr,
+            w_safety=args.w_safety,
             device=args.device,
             conformity_sample=args.conformity_sample,
             precision_esm_model=args.precision_esm,
             seed=args.seed,
         )
         if (
-            args.w_conformity or args.w_activity or args.w_precision or args.w_breadth or args.w_mdr
+            args.w_conformity
+            or args.w_activity
+            or args.w_precision
+            or args.w_breadth
+            or args.w_mdr
+            or args.w_safety
         )
         else None
     )

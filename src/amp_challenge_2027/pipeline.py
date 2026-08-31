@@ -27,6 +27,7 @@ from amp_challenge_2027.score import (
     ActivityScorer,
     CompositeScorer,
     ConformityScorer,
+    HemoScorer,
     PanelScorer,
     PrecisionProxyScorer,
 )
@@ -43,6 +44,9 @@ DEFAULT_WEIGHTS = {
     "precision": 0.25,
     "breadth": 1.0,
     "mdr": 1.0,
+    # Off until the HC50 head exists AND the safety audit says the top-100
+    # needs it (see docs/RUNBOOK_DERISK.md); 0 keeps selection byte-identical.
+    "safety": 0.0,
 }
 
 
@@ -92,6 +96,7 @@ def build_composite_scorer(
     w_precision: float = DEFAULT_WEIGHTS["precision"],
     w_breadth: float = DEFAULT_WEIGHTS["breadth"],
     w_mdr: float = DEFAULT_WEIGHTS["mdr"],
+    w_safety: float = DEFAULT_WEIGHTS["safety"],
     device: str = "cpu",
     conformity_sample: int = 12000,
     precision_esm_model: str = ESM2_MODEL,
@@ -103,6 +108,7 @@ def build_composite_scorer(
     - activity loads ``checkpoint/reward/classifier.pt`` (None → dropped).
     - breadth/mdr load ``checkpoint/reward/classifier_panel.pt`` (None → both
       dropped); both weights share ONE PanelScorer forward pass per candidate.
+    - safety loads ``checkpoint/reward_hemo/classifier.pt`` (None → dropped).
     - precision needs torch + transformers (dropped otherwise).
 
     Returns None only when NO component survives, in which case callers fall
@@ -123,6 +129,12 @@ def build_composite_scorer(
             components.append(("activity", float(w_activity), activity.score))
         else:
             print("[pipeline] no checkpoint/reward/classifier.pt; activity component dropped")
+    if w_safety:
+        hemo = HemoScorer.load(device=device)
+        if hemo is not None:
+            components.append(("safety", float(w_safety), hemo.score))
+        else:
+            print("[pipeline] no checkpoint/reward_hemo/classifier.pt; safety component dropped")
     if w_breadth or w_mdr:
         panel = PanelScorer.load(device=device)
         if panel is not None:

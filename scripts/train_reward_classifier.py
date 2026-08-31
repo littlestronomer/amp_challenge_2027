@@ -83,9 +83,7 @@ def load_panel_data(path: Path) -> list[dict]:
             seq = row["sequence"].strip().upper()
             # tok.is_valid_sequence is alphabet-only; the competition length
             # bounds live here (mirrors select.is_valid_sequence).
-            if not tok.is_valid_sequence(seq) or not (
-                MIN_LENGTH <= len(seq) <= MAX_LENGTH
-            ):
+            if not tok.is_valid_sequence(seq) or not (MIN_LENGTH <= len(seq) <= MAX_LENGTH):
                 skipped_sequence += 1
                 continue
             organism = (row.get("organism") or "").strip()
@@ -305,6 +303,8 @@ def train(
     ensemble_size: int = 1,
     calibrate: bool = True,
     panel: bool = False,
+    split: str = "random",
+    cluster_threshold: float = 0.7,
 ) -> None:
     """Train one or more classifier members; promote the best by val AUROC.
 
@@ -338,6 +338,8 @@ def train(
             device=device,
             save_dir=Path(out_dir) / f"member{member}",
             panel=panel,
+            split=split,
+            cluster_threshold=cluster_threshold,
         )
         metric_key = "best_macro_auroc" if panel else "best_auroc"
         temperature = (
@@ -380,6 +382,56 @@ def train(
     )
 
 
+def greedy_identity_clusters(sequences: list[str], *, threshold: float = 0.7) -> dict[str, str]:
+    """Greedy leader clustering by Levenshtein ratio ≥ ``threshold``.
+
+    Returns a seq → cluster-leader map. Deterministic: sequences are visited
+    in (length, lexicographic) order and join the first leader above the
+    threshold. A length-difference prefilter skips impossible pairs cheaply
+    (ratio ≤ 2·min(l₁,l₂)/(l₁+l₂), so widely different lengths can never hit
+    the threshold even with a perfect prefix match).
+    """
+    import Levenshtein
+
+    assign: dict[str, str] = {}
+    leaders: list[str] = []
+    for seq in sorted(set(sequences), key=lambda s: (len(s), s)):
+        for leader in leaders:
+            shorter, longer = (seq, leader) if len(seq) <= len(leader) else (leader, seq)
+            if 2 * len(shorter) / (len(shorter) + len(longer)) < threshold:
+                continue
+            if Levenshtein.ratio(seq, leader) >= threshold:
+                assign[seq] = leader
+                break
+        else:
+            leaders.append(seq)
+            assign[seq] = seq
+    return assign
+
+
+def cluster_split_records(
+    records: list[dict], *, threshold: float = 0.7, seed: int = 42, train_frac: float = 0.8
+) -> tuple[list[dict], list[dict], int]:
+    """Split records by identity cluster so no homolog straddles train/val.
+
+    A random sequence-level split inflates val AUROC whenever near-duplicate
+    peptide variants (single-mutation families, common in DBAASP) land on
+    both sides; this split is the honest generalization measure. Returns
+    (train, val, n_clusters); both lists are seeded-shuffled.
+    """
+    assign = greedy_identity_clusters([r["sequence"] for r in records], threshold=threshold)
+    reps = sorted(set(assign.values()))
+    rng = np.random.default_rng(seed)
+    rng.shuffle(reps)
+    k = max(1, int(train_frac * len(reps)))
+    train_reps = set(reps[:k])
+    train = [r for r in records if assign[r["sequence"]] in train_reps]
+    val = [r for r in records if assign[r["sequence"]] not in train_reps]
+    rng.shuffle(train)
+    rng.shuffle(val)
+    return train, val, len(reps)
+
+
 def _train_single(
     data_path: Path,
     *,
@@ -392,6 +444,8 @@ def _train_single(
     device: str,
     save_dir: Path,
     panel: bool = False,
+    split: str = "random",
+    cluster_threshold: float = 0.7,
 ) -> dict:
     """Train one classifier member. Returns best-val-AUROC bookkeeping.
 
@@ -415,10 +469,22 @@ def _train_single(
         print("[reward] no data; aborting", file=sys.stderr)
         sys.exit(1)
 
-    # 80/20 split. Binary: stratified by class. Panel: plain deterministic
+    # 80/20 split. Clustered: identity clusters (honest generalization — no
+    # homolog on both sides). Random: binary stratified by class, panel plain
     # shuffle (multi-hot labels don't partition into two clean strata).
     rng = np.random.default_rng(seed)
-    if panel:
+    if split == "clustered":
+        train_recs, val_recs, n_clusters = cluster_split_records(
+            records, threshold=cluster_threshold, seed=seed
+        )
+        print(
+            f"[reward] CLUSTERED split: {n_clusters} clusters "
+            f"(threshold {cluster_threshold:g}) → train: {len(train_recs)}  val: {len(val_recs)}"
+        )
+        if not val_recs:
+            print("[reward] clustered split left val empty; aborting", file=sys.stderr)
+            sys.exit(1)
+    elif panel:
         shuffled = list(records)
         rng.shuffle(shuffled)
         n_train = int(0.8 * len(shuffled))
@@ -653,6 +719,20 @@ def main() -> None:
         "(loader: activity_labels_full.csv; artifact: classifier_panel.pt)",
     )
     parser.add_argument(
+        "--split",
+        choices=["random", "clustered"],
+        default="random",
+        help="val split: random (legacy; near-duplicate variants straddle "
+        "train/val, optimistic AUROC) or clustered (Levenshtein identity "
+        "clusters — the honest generalization measure)",
+    )
+    parser.add_argument(
+        "--cluster-threshold",
+        type=float,
+        default=0.7,
+        help="Levenshtein ratio for identity clustering under --split clustered",
+    )
+    parser.add_argument(
         "--esm-model",
         type=str,
         default="facebook/esm2_t12_35M_UR50D",
@@ -692,6 +772,14 @@ def main() -> None:
     if not args.data.exists():
         print(f"[reward] labels file missing: {args.data}", file=sys.stderr)
         sys.exit(1)
+    if args.split == "clustered" and args.out_dir == REWARD_DIR:
+        print(
+            "[reward] refusing --split clustered into the DEPLOYED reward dir "
+            f"({REWARD_DIR}) — promotion would overwrite classifier_panel.pt. "
+            "Point --out-dir at an evaluation-only dir (e.g. checkpoint/reward_clustered).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     train(
         args.data,
@@ -706,6 +794,8 @@ def main() -> None:
         ensemble_size=args.ensemble_size,
         calibrate=not args.no_calibrate,
         panel=args.panel,
+        split=args.split,
+        cluster_threshold=args.cluster_threshold,
     )
 
 

@@ -49,6 +49,7 @@ from amp_challenge_2027.config import (
     ESM2_MODEL,
     MDR_PANEL_GENERA,
     REWARD_DIR,
+    REWARD_HEMO_DIR,
 )
 from amp_challenge_2027.props import hydrophobic_moment, mean_hydrophobicity
 
@@ -363,6 +364,91 @@ class PanelScorer:
 
 
 # ---------------------------------------------------------------------------
+# Hemolysis safety (Phase-2 risk control)
+# ---------------------------------------------------------------------------
+
+
+class HemoScorer:
+    """Predicted hemolysis risk from the HC50 head → SAFETY component.
+
+    Direction convention: the head is trained by the generic binary trainer on
+    ``hemolysis_labels.csv`` where label "active" == RISKY (min HC50 ≤ the
+    ceiling), so the raw sigmoid output is p(risky). The composite-scorer
+    component is ``safety = 1 - p(risky)`` (higher = safer), so a positive
+    ``--w-safety`` weight penalizes hemolytic candidates like every other
+    higher-is-better component.
+
+    Loads ``classifier.pt`` + ``config.json`` from ``REWARD_HEMO_DIR``
+    (``checkpoint/reward_hemo/``, a separate dir so training the hemo head can
+    never touch the activity artifacts). ``load()`` returns None when absent —
+    the component simply drops, exactly like the other optional scorers.
+    """
+
+    name = "safety"
+
+    def __init__(self, model, tokenizer, device: str, temperature: float = 1.0) -> None:
+        self._model = model
+        self._tokenizer = tokenizer
+        self._device = device
+        self._temperature = max(float(temperature), 1e-3)
+
+    @classmethod
+    def load(
+        cls, *, device: str = "cpu", checkpoint_dir: Path | str | None = None
+    ) -> HemoScorer | None:
+        ckpt_dir = Path(checkpoint_dir) if checkpoint_dir else REWARD_HEMO_DIR
+        ckpt_path = ckpt_dir / "classifier.pt"
+        config_path = ckpt_dir / "config.json"
+        if not ckpt_path.exists() or not config_path.exists():
+            return None
+        try:
+            import torch
+            from transformers import AutoModel, AutoTokenizer
+
+            config = json.loads(config_path.read_text())
+            BinaryClassifier, _, _ = _build_activity_module(num_outputs=1)
+            tokenizer = AutoTokenizer.from_pretrained(config["esm_model"])
+            esm = AutoModel.from_pretrained(config["esm_model"])
+            model = BinaryClassifier(esm.config.hidden_size, 1)
+            model.esm = esm
+            sd = torch.load(ckpt_path, map_location=device)
+            if any(k.startswith("esm.") for k in sd):
+                model.load_state_dict(sd)
+            else:
+                _, unexpected = model.load_state_dict(sd, strict=False)
+                if unexpected:
+                    raise RuntimeError(f"unexpected head keys: {sorted(unexpected)[:4]}")
+            model.to(device).eval()
+            return cls(model, tokenizer, device, temperature=config.get("temperature", 1.0))
+        except Exception as e:
+            print(f"[score] hemolysis scorer unavailable ({e}); dropping component")
+            return None
+
+    def p_risky(self, sequences: list[str]) -> np.ndarray:
+        """Calibrated p(hemolytic at ≤ ceiling), shape (N,). Higher = riskier."""
+        import torch
+
+        out = np.empty(len(sequences), dtype=np.float32)
+        batch_size = 64
+        with torch.no_grad():
+            for start in range(0, len(sequences), batch_size):
+                batch = sequences[start : start + batch_size]
+                enc = self._tokenizer(
+                    batch, return_tensors="pt", padding=True, truncation=True, max_length=52
+                )
+                enc = {k: v.to(self._device) for k, v in enc.items()}
+                logits = self._model(enc["input_ids"], enc["attention_mask"])
+                out[start : start + batch_size] = (
+                    torch.sigmoid(logits / self._temperature).cpu().numpy()
+                )
+        return out
+
+    def score(self, sequences: list[str]) -> np.ndarray:
+        """SAFETY = 1 - p(risky). Higher = safer (composite convention)."""
+        return (1.0 - self.p_risky(sequences)).astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
 # Precision proxy (kNN similarity in ESM-2 embedding space)
 # ---------------------------------------------------------------------------
 
@@ -506,6 +592,7 @@ __all__ = [
     "ConformityScorer",
     "ActivityScorer",
     "PanelScorer",
+    "HemoScorer",
     "PrecisionProxyScorer",
     "CompositeScorer",
     "_property_matrix",
