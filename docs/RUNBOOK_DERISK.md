@@ -123,3 +123,21 @@ abstract's skeleton.
 
 Only once the position is verified (or the library switched per A4.2) do the
 improvement tracks resume: L0 decode-parameter sweep → conditioning → RAFT.
+
+## After the gates — L0 decode-parameter sweep (first improvement track)
+
+Decode params (T / top-p / rep-penalty) were hand-set once; this sweeps a
+3×3 grid around the default on the promoted seed44 checkpoint. Pure
+inference, no code changes to generation itself:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup bash scripts/sweep_decode.sh \
+    > ~/decode_sweep.log 2>&1 &
+# ~2 h (9 cells × ~14 min). Summary lands in sweep_results/decode/summary.tsv
+```
+
+Read-out: the anchor row (`t1.00-p0.90-r1.3`) re-baselines the current
+default under identical eval; adopt a new decode config only if FBD/MMD
+improve beyond seed-noise without sacrificing Conformity — then it becomes
+the `generate.py` defaults (and regeneration + byte-check follow, same as
+the seed44 promotion).
