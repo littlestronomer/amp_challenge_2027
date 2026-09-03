@@ -219,3 +219,39 @@ def test_safety_flag_requests_component_or_drops(tmp_path, monkeypatch):
         )
         is None
     )
+
+
+def test_binary_trainer_smoke_uneven_batches(tmp_path):
+    """Binary mode must survive a ragged last val batch (regression: the
+    panel refactor briefly made it np.array over per-batch arrays)."""
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+    import csv as _csv
+
+    labels_csv = tmp_path / "labels.csv"
+    with open(labels_csv, "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["sequence", "label"])
+        # 10 sequences, batch_size 4 → val batches of 4/4/... with the last
+        # one ragged after the 80/20 split.
+        for i in range(5):
+            w.writerow([("KLLKLLKKLL" * 2)[: 10 + i], "active"])
+            w.writerow([("AADDGGVVWW" * 2)[: 10 + i], "inactive"])
+
+    from train_reward_classifier import train
+
+    train(
+        labels_csv,
+        esm_model="facebook/esm2_t6_8M_UR50D",
+        unfreeze_layers=0,
+        epochs=1,
+        batch_size=4,
+        lr=1e-4,
+        seed=42,
+        device="cpu",
+        out_dir=tmp_path / "out",
+        ensemble_size=1,
+        calibrate=True,
+        panel=False,
+    )
+    assert (tmp_path / "out" / "classifier.pt").exists()

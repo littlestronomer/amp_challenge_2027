@@ -606,7 +606,9 @@ def _train_single(
                 all_logits.append(logits.cpu().numpy())
 
         val_logits = np.concatenate(all_logits)
-        val_labels = np.concatenate(all_labels) if panel else np.array(all_labels)
+        # Concatenate in BOTH modes: per-batch arrays are ragged whenever the
+        # last batch is smaller than batch_size (np.array would fail on it).
+        val_labels = np.concatenate(all_labels)
         val_masks = np.concatenate(all_masks) if panel else None
 
         if panel:
