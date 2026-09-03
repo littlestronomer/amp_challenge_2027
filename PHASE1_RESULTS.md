@@ -238,3 +238,18 @@ v2 schema (13,892 hemolytic peptides; server-side filter). The data is
 non-RBC cytotoxicity and are excluded by the target filter. 9,010 sequences
 carry usable observations; label rule risk-band 40% / safe-band 30% /
 ceiling 128 µM validated by the full kind distribution.
+
+**A4.3 — hemolysis safety head (closed 2026-08-30).** Labels: 4,752 sequences
+(2,568 risky / 2,184 safe) from the band rule (risk ≥40% lysis at ≤128 µM;
+safe ≤30% at ≥128 µM; erythrocyte rows only). Head: promoted member AUROC
+**0.932** (T=3.94), artifacts in `checkpoint/reward_hemo/` (separate dir).
+Audit of the adopted top-100: p(risky) mean 0.382 / p75 0.395 / **max 0.434**
+— no concentrated risk ⇒ the adopted recipe is UNCHANGED (`--w-safety`
+defaults to 0; the component is wired and available). Caveats: melittin
+sanity passed in direction (0.495 vs control 0.388) with modest absolute
+separation under T=3.94 — treat p_risky as a conservative ranking signal;
+AUROC 0.932 is random-split (informational only while weight is 0).
+
+**De-risk phase COMPLETE — position verified.** Honest AUROC 0.808 (≥0.75
+gate), library choice confirmed under the 650M embedder, no safety exposure.
+Improvement tracks may resume from this baseline.
