@@ -104,60 +104,84 @@ def hemo_world(tmp_path):
     raw = _write(
         tmp_path,
         "hemolysis_raw.csv",
-        ["peptide_id", "kind", "target", "value", "unit"],
+        ["peptide_id", "kind", "target", "value", "unit", "note", "raw"],
         [
-            ["1", "HC50", "hRBC", "50", "µM"],  # risky (≤128)
-            ["1", "HC50", "hRBC", "200", "µM"],  # same seq, higher reading
-            ["2", "HC50", "hRBC", "400", "µM"],  # safe (>128)
-            ["2", "EC50", "HeLa", "10", "µM"],  # cytotoxic, not hemolysis → excluded
-            ["3", "Hemolysis", "hRBC", "64", "µg/ml"],  # converted via MW → µM
-            ["99", "HC50", "hRBC", "10", "µM"],  # unknown peptide id
-            ["1", "HC50", "hRBC", "n/a", "µM"],  # unparseable
+            # peptide 1: 50-60% lysis at 6 µM → RISKY (worst=6)
+            ["1", "50-60% Hemolysis", "Human erythrocytes", "6", "µM", "", "{}"],
+            # same peptide, benign at high conc (band 0-10% @ 400 µM)
+            ["1", "0-10% Hemolysis", "Human erythrocytes", "400", "µM", "", "{}"],
+            # peptide 2: only benign-at-high → SAFE
+            ["2", "0-10% Hemolysis", "Human erythrocytes", "300", "µM", "", "{}"],
+            # cytotoxicity against non-RBC cells → excluded by --targets
+            ["2", "50% Cell death", "HeLa", "10", "µM", "", "{}"],
+            # peptide 3: IC50 (counts as 50% band) given in µg/ml → converted, risky
+            ["3", "IC50", "Human erythrocytes", "64", "µg/ml", "", "{}"],
+            # unknown peptide id
+            ["99", "50-60% Hemolysis", "Human erythrocytes", "10", "µM", "", "{}"],
+            # unconvertible value
+            ["1", "50-60% Hemolysis", "Human erythrocytes", "n/a", "µM", "", "{}"],
+            # band-less measure
+            ["3", "Visual inspection", "Human erythrocytes", "10", "µM", "", "{}"],
         ],
     )
     return peptides, raw
 
 
-def test_hemolysis_builder_rule_and_report(hemo_world, tmp_path):
+def test_band_midpoint_parsing():
+    from build_hemolysis_labels import band_midpoint
+
+    assert band_midpoint("50-60% Hemolysis") == 55.0
+    assert band_midpoint("0-10% Hemolysis") == 5.0
+    assert band_midpoint("90-100% Hemolysis") == 95.0
+    assert band_midpoint("50% Cell death") == 50.0
+    assert band_midpoint("IC50") == 50.0
+    assert band_midpoint("MHC") == 50.0
+    assert band_midpoint("Visual inspection") is None
+    assert band_midpoint("") is None
+
+
+def test_hemolysis_builder_band_rule(hemo_world, tmp_path):
     from build_hemolysis_labels import main as hemo_main
 
     peptides, raw = hemo_world
     out = tmp_path / "hemolysis_labels.csv"
-    hemo_main(
-        ["--raw", str(raw), "--peptides", str(peptides), "--ceiling", "128", "--out", str(out)]
-    )
+    hemo_main(["--raw", str(raw), "--peptides", str(peptides), "--out", str(out)])
 
     with open(out, newline="") as f:
         rows = {r["sequence"]: r for r in csv.DictReader(f)}
-    # peptide 1: min(50, 200) = 50 ≤ 128 → risky
+    # peptide 1: risky band at 6 µM dominates its benign high-conc row
     assert rows["KLLKLLKKLLKL"]["label"] == "active"
-    assert float(rows["KLLKLLKKLLKL"]["hc50_um"]) == 50.0
-    # peptide 2: only hemolysis reading is 400 → safe
+    assert float(rows["KLLKLLKKLLKL"]["hc50_um"]) == 6.0
+    # peptide 2: benign at 300 µM (≥ ceiling) → safe, HeLa row excluded
     assert rows["GIGKFLHSAKKFGKAFVGEIMNS"]["label"] == "inactive"
-    # peptide 3: 64 µg/ml → µM via MW (23-mer, ~2.4 kDa → ~26 µM) → risky
+    assert float(rows["GIGKFLHSAKKFGKAFVGEIMNS"]["hc50_um"]) == 300.0
+    # peptide 3: IC50 64 µg/ml → µM via MW → risky
     from build_ranking_labels import peptide_mw
 
     expected = 64 * 1000.0 / peptide_mw("RRWWVIKW")
-    assert float(rows["RRWWVIKW"]["hc50_um"]) == pytest.approx(expected, rel=1e-3)
     assert rows["RRWWVIKW"]["label"] == "active"
+    assert float(rows["RRWWVIKW"]["hc50_um"]) == pytest.approx(expected, rel=1e-3)
     assert "99" not in rows  # unmatched ids produce no label
 
     # report mode writes nothing and summarizes
     hemo_main(["--raw", str(raw), "--peptides", str(peptides), "--report"])
+    assert not (tmp_path / "hemolysis_labels_report.csv").exists()
 
 
-def test_hemolysis_builder_kind_filter_selective(hemo_world, tmp_path):
+def test_hemolysis_builder_knobs_change_rule(hemo_world, tmp_path):
     from build_hemolysis_labels import main as hemo_main
 
     peptides, raw = hemo_world
     out = tmp_path / "strict.csv"
-    # Strict regex: only literal "HC50" kinds — the "Hemolysis" row drops.
+    # risk-band 70: peptide 1's 55% band no longer counts as risky →
+    # falls through to its benign-at-400µM row → safe.
     hemo_main(
-        ["--raw", str(raw), "--peptides", str(peptides), "--kinds", "^hc50$", "--out", str(out)]
+        ["--raw", str(raw), "--peptides", str(peptides), "--risk-band", "70", "--out", str(out)]
     )
     with open(out, newline="") as f:
-        seqs = {r["sequence"] for r in csv.DictReader(f)}
-    assert seqs == {"KLLKLLKKLLKL", "GIGKFLHSAKKFGKAFVGEIMNS"}
+        rows = {r["sequence"]: r for r in csv.DictReader(f)}
+    assert rows["KLLKLLKKLLKL"]["label"] == "inactive"
+    assert float(rows["KLLKLLKKLLKL"]["hc50_um"]) == 400.0
 
 
 # ---------------------------------------------------------------------------

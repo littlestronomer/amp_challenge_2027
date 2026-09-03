@@ -62,15 +62,22 @@ promotion).
 
 ## A4.3 — HC50 safety head
 
-**3a. Inspect first (writes nothing)** — the label rule is finalized from
-real values, never guessed:
+**3a. Refetch with the corrected schema, then inspect (writes no labels).**
+The original fetch's `kind` column was empty (wrong key — v4 stores the
+measure in `activityMeasureForLysisGroup`); the data is also (concentration,
+percent-lysis-band) pairs, not HC50 values. `--hemo-refetch` rewrites only
+`hemolysis_raw.csv` using the server-side hemolytic filter (~13.9k peptides,
+~15–30 min):
 
 ```bash
+nohup uv run python scripts/fetch_dbaasp_v4.py --hemo-refetch     > ~/hemo_refetch.log 2>&1 &
+# …then:
 uv run python scripts/build_hemolysis_labels.py --report | tee ~/hemo_report.txt
 ```
 
-Review the kind×outcome table; adjust `--kinds` / `--ceiling` if the default
-(`hc50|hemolys`, 128 µM) mismatches what the data actually contains.
+Review the kind×outcome table; adjust `--risk-band`/`--safe-band`/`--ceiling`
+(defaults 40% / 30% / 128 µM) or `--targets` if the full-data distribution
+disagrees with the 250-peptide sample that set them.
 
 **3b. Build labels + train the head** (separate dir; ~10 min):
 

@@ -85,13 +85,23 @@ def _get(url: str, *, timeout: float = 30.0, retries: int = 4) -> dict | list:
     raise RuntimeError(f"GET {url} failed after {retries} attempts: {last_err}")
 
 
-def index_all_peptides(*, page_size: int = PAGE_SIZE, pause: float = 0.2) -> list[dict]:
-    """Page through the index; returns every record (monomers + complexes)."""
+def index_all_peptides(
+    *,
+    page_size: int = PAGE_SIZE,
+    pause: float = 0.2,
+    extra_query: str = "",
+) -> list[dict]:
+    """Page through the index; returns every record (monomers + complexes).
+
+    ``extra_query`` appends server-side filters, e.g.
+    ``&hemolyticAndCytotoxicActivitie.value=true`` (13,892 hits, verified
+    2026-08-29) — the targeted id list for hemolysis refetches.
+    """
     out: list[dict] = []
     offset = 0
     total = None
     while True:
-        payload = _get(f"{BASE}/peptides?limit={page_size}&offset={offset}")
+        payload = _get(f"{BASE}/peptides?limit={page_size}&offset={offset}{extra_query}")
         data = payload.get("data", [])
         total = payload.get("total", payload.get("totalCount", total))
         out.extend(data)
@@ -167,17 +177,20 @@ def parse_detail(detail: dict) -> tuple[list[dict], list[dict], dict]:
 
     hemo_rows: list[dict] = []
     for h in detail.get("hemoliticCytotoxicActivities") or []:
+        unit = h.get("unit")
         hemo_rows.append(
             {
                 "peptide_id": info["id"],
-                "kind": h.get("activityType") or "",
-                "target": json.dumps(
-                    h.get("targetCells") or h.get("targetSpecies") or "", ensure_ascii=False
-                ),
-                "value": str(h.get("concentration") or ""),
-                "unit": (h.get("unit") or {}).get("name", "")
-                if isinstance(h.get("unit"), dict)
-                else str(h.get("unit") or ""),
+                # Real v4 keys (verified 2026-08-29): the measure is a
+                # percent-lysis band in activityMeasureForLysisGroup, the
+                # target cell in targetCell; `note` sometimes carries the
+                # only evidence when concentration is "NA".
+                "kind": (h.get("activityMeasureForLysisGroup") or {}).get("name", ""),
+                "target": (h.get("targetCell") or {}).get("name", ""),
+                "value": str(h.get("concentration") or "").strip(),
+                "unit": unit.get("name", "") if isinstance(unit, dict) else str(unit or ""),
+                "note": str(h.get("note") or ""),
+                "raw": json.dumps(h, ensure_ascii=False, sort_keys=True),
             }
         )
     return activity_rows, hemo_rows, info
@@ -214,7 +227,10 @@ def fetch_all(
     aw = csv.DictWriter(
         activity_f, fieldnames=["peptide_id", "target_organism", "concentration", "assay"]
     )
-    hw = csv.DictWriter(hemo_f, fieldnames=["peptide_id", "kind", "target", "value", "unit"])
+    hw = csv.DictWriter(
+        hemo_f,
+        fieldnames=["peptide_id", "kind", "target", "value", "unit", "note", "raw"],
+    )
     if peptides_f.tell() == 0:
         pw.writeheader()
     if activity_f.tell() == 0:
@@ -305,6 +321,64 @@ def remap_activity_ids(out_dir: Path) -> tuple[int, int]:
     return total_a, 0
 
 
+HEMO_FIELDS = ["peptide_id", "kind", "target", "value", "unit", "note", "raw"]
+
+
+def refetch_hemolysis(
+    *,
+    out_dir: Path,
+    workers: int = 4,
+    pause: float = 0.1,
+    max_records: int | None = None,
+) -> None:
+    """Rewrite hemolysis_raw.csv with the corrected schema (v2, 2026-08-29).
+
+    The original full fetch stored `kind` from a nonexistent key (always
+    empty) and dropped targetCell/note. This mode uses the server-side
+    hemolytic filter (13,892 ids) to refetch ONLY peptides with
+    hemolysis/cytotoxic data and rewrites hemolysis_raw.csv from scratch;
+    peptides.csv / activity.csv / fetch state are untouched.
+    """
+    index = index_all_peptides(extra_query="&hemolyticAndCytotoxicActivitie.value=true")
+    ids = [r["id"] for r in index if r.get("id") is not None]
+    if max_records:
+        ids = ids[:max_records]
+    print(f"[dbaasp] hemo refetch: {len(ids)} hemolytic peptides")
+
+    hemo_path = out_dir / "hemolysis_raw.csv"
+    with open(hemo_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=HEMO_FIELDS)
+        writer.writeheader()
+        buffer: list[dict] = []
+
+        def work(pid: int) -> list[dict]:
+            detail = _get(f"{BASE}/peptides/{pid}")
+            _activities, hemo, _info = parse_detail(detail)
+            time.sleep(pause)
+            return hemo
+
+        n_done, n_rows = 0, 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(work, pid): pid for pid in ids}
+            for fut in as_completed(futures):
+                pid = futures[fut]
+                try:
+                    rows = fut.result()
+                except Exception as e:
+                    print(f"\n[dbaasp] hemo id {pid} failed: {e}", file=sys.stderr)
+                    continue
+                buffer.extend(rows)
+                n_rows += len(rows)
+                n_done += 1
+                if n_done % 500 == 0:
+                    writer.writerows(buffer)
+                    f.flush()
+                    buffer = []
+                    print(f"[dbaasp] hemo refetch: {n_done}/{len(ids)} cards", flush=True)
+        writer.writerows(buffer)
+    print(f"[dbaasp] hemo refetch done: {n_done} cards → {n_rows} rows → {hemo_path}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Fetch DBAASP v4 API → raw CSVs (resumable).")
     parser.add_argument("--out-dir", type=Path, default=Path("data/raw/dbaasp"))
@@ -319,10 +393,20 @@ def main(argv: list[str] | None = None) -> None:
         "numeric ids peptides.csv joins on (no network); fixes artifacts "
         "created before the id-mismatch fix",
     )
+    parser.add_argument(
+        "--hemo-refetch",
+        action="store_true",
+        help="rewrite hemolysis_raw.csv with the corrected v2 schema "
+        "(kind/target/note/raw) by refetching only the 13,892 peptides the "
+        "server flags as hemolytic; other artifacts untouched",
+    )
     args = parser.parse_args(argv)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     if args.repair_ids:
         remap_activity_ids(args.out_dir)
+        return
+    if args.hemo_refetch:
+        refetch_hemolysis(out_dir=args.out_dir, workers=args.workers, max_records=args.max_records)
         return
     fetch_all(out_dir=args.out_dir, workers=args.workers, max_records=args.max_records)
 

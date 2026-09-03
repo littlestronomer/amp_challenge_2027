@@ -64,7 +64,13 @@ def test_parse_detail_real_card_shape():
             },
         ],
         "hemoliticCytotoxicActivities": [
-            {"activityType": "HC50", "concentration": "100", "unit": {"name": "µM"}}
+            {
+                "activityMeasureForLysisGroup": {"name": "IC50"},
+                "targetCell": {"name": "Human erythrocytes"},
+                "concentration": "100",
+                "unit": {"name": "µM"},
+                "note": "",
+            }
         ],
     }
     activities, hemo, info = parse_detail(card)
@@ -81,7 +87,7 @@ def test_parse_detail_real_card_shape():
     expected = 0.5 * 1000.0 / peptide_mw("ENREVPPGFTALIKTLRKCKII")
     assert float(activities[1]["concentration"].split()[0]) == pytest.approx(expected, rel=1e-4)
     assert activities[1]["concentration"].endswith("µM")
-    assert hemo and hemo[0]["kind"] == "HC50"
+    assert hemo and hemo[0]["kind"] == "IC50"
 
 
 def test_parse_detail_uses_numeric_join_id():
@@ -134,3 +140,74 @@ def test_remap_activity_ids_repairs_string_keys(tmp_path):
     with open(tmp_path / "hemolysis_raw.csv", newline="") as f:
         hemo = list(csv.DictReader(f))
     assert hemo[0]["peptide_id"] == "7"
+
+
+def test_parse_detail_hemo_v2_schema():
+    """v2 hemo rows use the REAL keys (activityMeasureForLysisGroup/targetCell)
+    and keep note + raw JSON — the v1 keys produced 23k empty-kind rows."""
+    card = {
+        "id": 11,
+        "dbaaspId": "DBAASPR_11",
+        "sequence": "KLLKLLKKLLKL",
+        "complexity": {"name": "Monomer"},
+        "monomers": [],
+        "targetActivities": [],
+        "hemoliticCytotoxicActivities": [
+            {
+                "activityMeasureForLysisGroup": {"name": "50-60% Hemolysis"},
+                "activityMeasureForLysisValue": "50% Hemolysis",
+                "targetCell": {"name": "Human erythrocytes"},
+                "concentration": "6",
+                "unit": {"name": "µM"},
+                "note": "",
+            },
+            {
+                "activityMeasureForLysisGroup": None,
+                "targetCell": {"name": "Human erythrocytes"},
+                "concentration": "NA",
+                "unit": None,
+                "note": "Not active up to 100 micro g/ ml",
+            },
+        ],
+    }
+    _acts, hemo, info = parse_detail(card)
+    assert info["id"] == 11
+    assert hemo[0]["kind"] == "50-60% Hemolysis"
+    assert hemo[0]["target"] == "Human erythrocytes"
+    assert hemo[0]["value"] == "6" and hemo[0]["unit"] == "µM"
+    assert "50-60%" in hemo[0]["raw"]  # raw JSON retained for future rule changes
+    assert hemo[1]["note"].startswith("Not active")
+    assert hemo[1]["kind"] == ""
+
+
+def test_refetch_hemolysis_rewrites_csv_with_filtered_ids(tmp_path, monkeypatch):
+    import fetch_dbaasp_v4 as fd
+
+    monkeypatch.setattr(fd, "index_all_peptides", lambda **kw: [{"id": 11}, {"id": 12}])
+
+    def fake_get(url):
+        assert "hemolytic" not in url or True
+        pid = int(url.rsplit("/", 1)[-1])
+        return {
+            "id": pid,
+            "sequence": "KLLKLLKKLLKL",
+            "hemoliticCytotoxicActivities": [
+                {
+                    "activityMeasureForLysisGroup": {"name": "50-60% Hemolysis"},
+                    "targetCell": {"name": "Human erythrocytes"},
+                    "concentration": "6",
+                    "unit": {"name": "µM"},
+                    "note": "",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(fd, "_get", fake_get)
+    monkeypatch.setattr(fd.time, "sleep", lambda s: None)
+    fd.refetch_hemolysis(out_dir=tmp_path, workers=1, pause=0.0)
+
+    with open(tmp_path / "hemolysis_raw.csv", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 2  # one per peptide id
+    assert set(rows[0].keys()) >= {"peptide_id", "kind", "target", "value", "unit", "note", "raw"}
+    assert rows[0]["kind"] == "50-60% Hemolysis"
