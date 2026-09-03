@@ -208,3 +208,33 @@ Adopted submission configuration: seed44 generator checkpoint + DEFAULT_WEIGHTS
 = {activity 0.5, conformity 0.25, precision 0.25, breadth 1, mdr 1}. The entry
 point degrades gracefully when classifier_panel.pt is absent (components drop,
 weights renormalize).
+
+## De-risking audit (2026-08-30)
+
+**A4.1 — Clustered-split classifier eval (the honest AUROC).** Panel head
+retrained with identity-clustered train/val (Levenshtein ratio ≥ 0.70; no
+homolog straddles the split; 3 members, best promoted):
+**macro AUROC 0.808** (clustered) vs 0.863 (random split) — leakage penalty
+−0.055, milder than the −0.10–0.15 typical of AMP datasets. Per-genus under
+clustering 0.72–0.83 (E. faecium weakest). All claims now quote 0.808;
+the deployed classifier_panel.pt (random-split, more training data) is
+unchanged — the clustered run is an evaluation instrument only.
+
+**A4.2 — 650M-embedder robustness check (official fidelity).** Both candidate
+libraries re-scored with esm2_t33_650M:
+
+| library | FBD | MMD | Recall | Authenticity | Precision | Conformity |
+|---|---|---|---|---|---|---|
+| seed44 | **0.269** | **0.570** | **0.906** | **0.782** | 0.851 | 0.497 |
+| v2 (seed42) | 0.521 | 0.992 | 0.844 | 0.751 | 0.900 | 0.591 |
+
+seed44's coverage lead survives — and slightly widens — under the
+official-fidelity embedder; v2 keeps its Precision/Conformity edge exactly as
+at 8M. Instrument-bet de-risked: **seed44 remains the submission library.**
+
+**A4.3 — hemolysis data audit (in progress).** Refetched with the corrected
+v2 schema (13,892 hemolytic peptides; server-side filter). The data is
+(concentration, percent-lysis-band) pairs on erythrocytes — IC50 rows are
+non-RBC cytotoxicity and are excluded by the target filter. 9,010 sequences
+carry usable observations; label rule risk-band 40% / safe-band 30% /
+ceiling 128 µM validated by the full kind distribution.
