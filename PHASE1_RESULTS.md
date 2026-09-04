@@ -253,3 +253,25 @@ AUROC 0.932 is random-split (informational only while weight is 0).
 **De-risk phase COMPLETE — position verified.** Honest AUROC 0.808 (≥0.75
 gate), library choice confirmed under the 650M embedder, no safety exposure.
 Improvement tracks may resume from this baseline.
+
+## L0 decode-parameter sweep (2026-08-30) — top-p 0.95 ADOPTED
+
+3×3 grid around the hand-set default (T/top-p/rep-pen) on the seed44
+checkpoint (`sweep_results/decode/summary.tsv`). Anchor reproduced the
+recorded metrics exactly (driver + determinism verified). Monotone gradient:
+hotter/looser decoding improves coverage; the sharp corner collapses
+(FBD 0.418). Adopted cell — **top-p 0.9 → 0.95** (single-knob change):
+
+| | anchor | adopted | Δ |
+|---|---|---|---|
+| FBD | 0.192 | **0.148** | −23% |
+| MMD | 0.553 | **0.221** | −60% |
+| Recall | 0.913 | 0.921 | +0.008 |
+| Conformity | 0.4966 | 0.4965 | flat |
+| Precision | 0.854 | 0.850 | −0.005 |
+
+Runner-up (aggressive alt): T=1.15/top-p=0.95/rep=1.2 — best Recall 0.930 and
+Conformity +0.006 at FBD 0.176. Cross-seed σ is large but measures checkpoint
+variation; for a fixed checkpoint this comparison is deterministic, consistent
+across 4 cells, and embedder-stable per A4.2. 650M confirmation + top-100
+potency re-verification follow before the swap is final.

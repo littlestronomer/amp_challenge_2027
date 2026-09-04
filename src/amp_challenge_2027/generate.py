@@ -221,7 +221,14 @@ def main() -> None:
     parser.add_argument(
         "--sample-top-k", type=int, default=50, help="top-k sampling (0 to disable)"
     )
-    parser.add_argument("--top-p", type=float, default=0.9, help="nucleus sampling (0 to disable)")
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=0.95,
+        help="nucleus sampling (0 to disable); 0.95 adopted from the L0 decode "
+        "sweep (sweep_results/decode: FBD 0.192→0.148, MMD 0.553→0.221, "
+        "Conformity flat vs the 0.9 default)",
+    )
     parser.add_argument(
         "--repetition-penalty",
         type=float,
