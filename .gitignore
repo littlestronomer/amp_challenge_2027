@@ -18,12 +18,27 @@ data/raw/
 data/processed/
 data/cache/
 
-# Trained model checkpoints (large; release via HF Hub / git-lfs)
-checkpoint/generator/
-checkpoint/reward/
-checkpoint/**/*.pt
-checkpoint/**/*.bin
-checkpoint/**/*.safetensors
+# Trained model checkpoints — big artifacts stay out EXCEPT the shipped
+# inference weights (all under GitHub's 100 MB limit; the validator clones
+# the repo and must find them for `uv run generate` to reproduce outputs).
+checkpoint/*
+!checkpoint/generator/
+!checkpoint/generator_blend/
+!checkpoint/reward/
+!checkpoint/reward_hemo/
+checkpoint/generator/*
+!checkpoint/generator/config.json
+!checkpoint/generator/model.pt
+checkpoint/generator_blend/*
+!checkpoint/generator_blend/config.json
+!checkpoint/generator_blend/model.pt
+checkpoint/reward/*
+!checkpoint/reward/classifier.pt
+!checkpoint/reward/classifier_panel.pt
+!checkpoint/reward/config.json
+checkpoint/reward_hemo/*
+!checkpoint/reward_hemo/classifier.pt
+!checkpoint/reward_hemo/config.json
 *.ckpt
 
 # Eval artifacts
