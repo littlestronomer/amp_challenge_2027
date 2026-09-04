@@ -224,10 +224,10 @@ def main() -> None:
     parser.add_argument(
         "--top-p",
         type=float,
-        default=0.95,
-        help="nucleus sampling (0 to disable); 0.95 adopted from the L0 decode "
-        "sweep (sweep_results/decode: FBD 0.192→0.148, MMD 0.553→0.221, "
-        "Conformity flat vs the 0.9 default)",
+        default=0.9,
+        help="nucleus sampling (0 to disable). NOTE: the L0 sweep's 8M-embedder "
+        "win for 0.95 (FBD −23%) did NOT survive the 650M gate (0.274 vs 0.269) "
+        "— reverted to the original default; see PHASE1_RESULTS.md",
     )
     parser.add_argument(
         "--repetition-penalty",

@@ -275,3 +275,16 @@ Conformity +0.006 at FBD 0.176. Cross-seed σ is large but measures checkpoint
 variation; for a fixed checkpoint this comparison is deterministic, consistent
 across 4 cells, and embedder-stable per A4.2. 650M confirmation + top-100
 potency re-verification follow before the swap is final.
+
+**L0 AMENDED (2026-08-30): top-p 0.95 REVERTED — 8M-embedder artifact.**
+The 650M confirmation failed: FBD 0.274 vs 0.269 and MMD 0.600 vs 0.570 at
+top-p 0.95 (vs 0.9) — the 8M-only "−23% FBD / −60% MMD" did not transfer to
+the official-fidelity embedder. Small counter-gains (Recall +0.008, Diversity
++0.004, Authenticity +0.008) are not decision-grade. Default reverted to 0.9;
+the submission library remains the original seed44 decode.
+
+**Lesson (binding for future library changes):** 8M-embedder FBD deltas below
+~0.05 (and MMD below ~0.3) are NOT decision-grade — the 650M embedder is the
+gate instrument for any library-affecting change. Coarse rankings (seed44 vs
+v2) transferred; fine decode deltas did not. L0 closed as null: decode
+parameters are not a reliable lever at this delta scale.

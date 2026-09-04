@@ -137,7 +137,8 @@ CUDA_VISIBLE_DEVICES=1 nohup bash scripts/sweep_decode.sh \
 ```
 
 Read-out: the anchor row (`t1.00-p0.90-r1.3`) re-baselines the current
-default under identical eval; adopt a new decode config only if FBD/MMD
-improve beyond seed-noise without sacrificing Conformity — then it becomes
-the `generate.py` defaults (and regeneration + byte-check follow, same as
-the seed44 promotion).
+default under identical eval. BINDING GATE (added after the 0.95 revert):
+8M-embedder deltas are hypothesis-only — any library-affecting adoption must
+be confirmed with a 650M eval before swapping defaults (the top-p 0.95 cell
+won at 8M by −23% FBD and evaporated at 650M). L0 outcome: null at 650M; the
+default stays 0.9.
