@@ -300,3 +300,23 @@ metrics_official (informational); amPEPpy flagged as the one missing axis —
 it needs a py3.8 conda env (seqme-thirdparty) and is follow-up infra. If the
 official Phase-1 suite includes an activity surrogate, our panel-classifier
 breadth is a proxy, not a guarantee, of that axis.
+
+## G1 charge-conditioned SFT (2026-08-30) — mechanism success; kept as blend pool, NOT a replacement
+
+`checkpoint/generator-e100_p10-cond` (canonical corpus, v2 recipe +
+`--conditioning charge`, early stop ep55, val ppl 6.4). **Charge marginal
+fixed as designed: pool σ 3.15 vs reference 3.28** (unconditioned band was
+2.4–2.9); other marginals undamaged (hmoment exact, hydro/length close);
+clean-candidate rate highest yet (~80%).
+
+| 650M gate | seed44 | cond |
+|---|---|---|
+| FBD / MMD / Recall | **0.269 / 0.570 / 0.906** | 0.493 / 1.063 / 0.830 |
+| Precision / Conformity | 0.851 / 0.497 | **0.897 / 0.535** |
+| top-100 (breadth/mdr/mean_p) | 1.0/1.0/0.594 | 1.0/1.0/0.589 |
+
+The tradeoff transferred across embedders (property-space conformity is
+instrument-independent; FBD direction consistent at 8M and 650M — unlike the
+L0 decode artifact). Verdict: NOT a seed44 replacement (coverage gate failed);
+retained as the second pool for hybrid-library composition. FKEA baselines
+captured: 519.4 (8M) / 1788.9 (650M) for the cond library.
