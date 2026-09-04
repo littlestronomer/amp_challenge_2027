@@ -340,3 +340,18 @@ Precision/Conformity; sole cost Recall −0.017 vs seed44. Blend ratio is an
 open knob (50/50 was the first probe). Adoption requires wiring multi-
 checkpoint blending into the entry point with byte-determinism — not yet
 implemented; submission stack unchanged until then.
+
+### Hybrid ratio curve (650M) — LOCKED at 75/25
+
+| ratio (seed44:cond) | FBD | MMD | Recall | Precision | Conformity |
+|---|---|---|---|---|---|
+| 100:0 | 0.269 | 0.570 | 0.906 | 0.851 | 0.497 |
+| 87.5:12.5 | 0.237 | 0.431 | 0.902 | 0.858 | 0.502 |
+| **75:25 (LOCKED)** | **0.221** | **0.357** | 0.899 | 0.863 | 0.507 |
+| 50:50 | 0.236 | 0.381 | 0.889 | 0.876 | 0.515 |
+
+Interior FBD/MMD minimum at 75/25; typicality axes decline monotonically
+toward seed44 but stay above pure-seed44 everywhere. Locked config: seed44
+primary + cond secondary, 3:1 interleave. Production wiring: entry-point
+blend with auto-detect at `checkpoint/generator_blend`, byte-determinism
+required vs the probe file.
