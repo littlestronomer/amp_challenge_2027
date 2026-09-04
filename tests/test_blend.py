@@ -116,6 +116,9 @@ def test_blend_path_samples_both_and_interleaves(tmp_path, monkeypatch):
     )
     names = {c[0] for c in calls}
     assert names == {"generator", "generator_blend"}
+    # Both streams at standalone sizing (target*2) — the conditioned bin draw
+    # is n-dependent, so byte-reproduction requires matching sample counts.
+    assert all(n == 80 for _name, n in calls)
     # 3:1 blocks from the two streams (K-flavored primary, R-flavored secondary)
     assert [seq[:3] for seq in out[:4]] == ["KKL", "KKL", "KKL", "RRL"]
     assert len(out) == 40

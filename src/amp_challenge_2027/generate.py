@@ -467,9 +467,13 @@ def _sample_candidates(
     print(
         f"[generate] blend: {per_b}:1 primary {args.checkpoint.name} + secondary {blend_dir.name}"
     )
+    # BOTH streams at the standalone round-0 sizing (target*2): the
+    # charge-conditioned secondary's bin draw (Hamilton apportionment) depends
+    # on n, so its sample count MUST match the standalone generation for the
+    # interleaved library to stay byte-identical to blending two standalone
+    # libraries. The interleave consumes only the head of each stream.
     primary_raw = _sample_from(args.checkpoint, args, reference_set, target * 2)
-    secondary_n = max(int(target * 2 * 1 / (per_b + 1)), target)
-    secondary_raw = _sample_from(blend_dir, args, reference_set, secondary_n)
+    secondary_raw = _sample_from(blend_dir, args, reference_set, target * 2)
 
     from amp_challenge_2027.pipeline import clean_candidates, interleave_blend
 
