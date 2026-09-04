@@ -374,7 +374,16 @@ def train(
     if panel:
         cfg["task"] = "panel"
         cfg["genera"] = list(PANEL_GENERA)
-    cfg_path.write_text(json.dumps(cfg, indent=2))
+    cfg_text = json.dumps(cfg, indent=2)
+    cfg_path.write_text(cfg_text)
+    # Per-artifact twin: loaders prefer this file, so promoting the OTHER
+    # artifact (binary vs panel) can never clobber this one's metadata.
+    artifact_cfg = (
+        Path(out_dir) / "classifier_panel_config.json"
+        if panel
+        else Path(out_dir) / "classifier_config.json"
+    )
+    artifact_cfg.write_text(cfg_text)
     (Path(out_dir) / "members.json").write_text(json.dumps(summary, indent=2))
     print(
         f"\n[reward] promoted member {winner} "

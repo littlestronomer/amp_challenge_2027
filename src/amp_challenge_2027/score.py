@@ -205,7 +205,7 @@ class ActivityScorer:
     @classmethod
     def load(cls, *, device: str = "cpu") -> ActivityScorer | None:
         ckpt_path = REWARD_DIR / "classifier.pt"
-        config_path = REWARD_DIR / "config.json"
+        config_path = _resolve_config_path(REWARD_DIR, "classifier")
         if not ckpt_path.exists() or not config_path.exists():
             return None
         try:
@@ -259,6 +259,14 @@ class ActivityScorer:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_config_path(ckpt_dir: Path, artifact_stem: str) -> Path:
+    """Per-artifact config (``<stem>_config.json``) if present, else the
+    shared ``config.json``. Per-artifact files exist so promoting one
+    classifier (binary vs panel) can never clobber the other's metadata."""
+    per_artifact = ckpt_dir / f"{artifact_stem}_config.json"
+    return per_artifact if per_artifact.exists() else ckpt_dir / "config.json"
+
+
 class PanelScorer:
     """Activity-breadth components from the genus-level panel classifier.
 
@@ -296,7 +304,7 @@ class PanelScorer:
     ) -> PanelScorer | None:
         ckpt_dir = Path(checkpoint_dir) if checkpoint_dir else REWARD_DIR
         ckpt_path = ckpt_dir / "classifier_panel.pt"
-        config_path = ckpt_dir / "config.json"
+        config_path = _resolve_config_path(ckpt_dir, "classifier_panel")
         if not ckpt_path.exists() or not config_path.exists():
             return None
         try:

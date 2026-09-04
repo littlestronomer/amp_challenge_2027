@@ -255,3 +255,62 @@ def test_binary_trainer_smoke_uneven_batches(tmp_path):
         panel=False,
     )
     assert (tmp_path / "out" / "classifier.pt").exists()
+
+
+# ---------------------------------------------------------------------------
+# Per-artifact config files (promotion cannot clobber the other artifact)
+# ---------------------------------------------------------------------------
+
+
+def test_config_resolver_prefers_per_artifact_file(tmp_path):
+    from amp_challenge_2027.score import _resolve_config_path
+
+    (tmp_path / "config.json").write_text("{}")
+    (tmp_path / "classifier_panel_config.json").write_text("{}")
+    assert _resolve_config_path(tmp_path, "classifier_panel").name == "classifier_panel_config.json"
+    # Binary stem has no own file → shared fallback
+    assert _resolve_config_path(tmp_path, "classifier").name == "config.json"
+
+
+def test_config_resolver_fallback_only_shared(tmp_path):
+    from amp_challenge_2027.score import _resolve_config_path
+
+    (tmp_path / "config.json").write_text("{}")
+    assert _resolve_config_path(tmp_path, "classifier").name == "config.json"
+    assert _resolve_config_path(tmp_path, "classifier_panel").name == "config.json"
+
+
+def test_trainer_writes_per_artifact_config(tmp_path):
+    """train() promotion must emit <stem>_config.json alongside config.json —
+    the file the loaders prefer (protects panel metadata from binary
+    promotion and vice versa)."""
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+    import csv as _csv
+
+    labels = tmp_path / "labels.csv"
+    with open(labels, "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["sequence", "label"])
+        for i in range(5):
+            w.writerow([("KLLKLLKKLL" * 2)[: 10 + i], "active"])
+            w.writerow([("AADDGGVVWW" * 2)[: 10 + i], "inactive"])
+
+    from train_reward_classifier import train
+
+    train(
+        labels,
+        esm_model="facebook/esm2_t6_8M_UR50D",
+        unfreeze_layers=0,
+        epochs=1,
+        batch_size=4,
+        lr=1e-4,
+        seed=42,
+        device="cpu",
+        out_dir=tmp_path / "out",
+        ensemble_size=1,
+        calibrate=True,
+        panel=False,
+    )
+    assert (tmp_path / "out" / "classifier_config.json").exists()
+    assert (tmp_path / "out" / "config.json").exists()
