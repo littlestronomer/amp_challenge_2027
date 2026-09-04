@@ -320,3 +320,23 @@ instrument-independent; FBD direction consistent at 8M and 650M — unlike the
 L0 decode artifact). Verdict: NOT a seed44 replacement (coverage gate failed);
 retained as the second pool for hybrid-library composition. FKEA baselines
 captured: 519.4 (8M) / 1788.9 (650M) for the cond library.
+
+## Hybrid library (seed44 + cond, 50/50 interleave) — BEST LIBRARY RESULT (2026-08-30)
+
+Deterministic round-robin interleave of the two 50k libraries (25,202/25,197
+after dedup), evaluated at the 650M gate:
+
+| 650M | seed44 | cond | hybrid |
+|---|---|---|---|
+| FBD | 0.269 | 0.493 | **0.236** |
+| MMD | 0.570 | 1.063 | **0.381** |
+| Precision | 0.851 | 0.897 | 0.876 |
+| Conformity | 0.497 | 0.535 | 0.515 |
+| Recall | 0.906 | 0.830 | 0.889 |
+
+The mixture beats BOTH components on FBD/MMD (distributions bracket the
+reference from different sides) and takes the better side of both parents on
+Precision/Conformity; sole cost Recall −0.017 vs seed44. Blend ratio is an
+open knob (50/50 was the first probe). Adoption requires wiring multi-
+checkpoint blending into the entry point with byte-determinism — not yet
+implemented; submission stack unchanged until then.
