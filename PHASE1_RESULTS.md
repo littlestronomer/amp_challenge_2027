@@ -355,3 +355,15 @@ toward seed44 but stay above pure-seed44 everywhere. Locked config: seed44
 primary + cond secondary, 3:1 interleave. Production wiring: entry-point
 blend with auto-detect at `checkpoint/generator_blend`, byte-determinism
 required vs the probe file.
+
+### Hybrid promotion VERIFIED (2026-09-05)
+
+Entry-point reproduction gate passed: `uv run generate` (seed 42, defaults)
+produced a library byte-identical to the locked 75/25 probe
+(`checkpoint/generator_blend` auto-detected; primary 65,027 / secondary
+79,909 clean — exact standalone stream counts). Top-100 potency on the
+hybrid pool: breadth 1.0 / mdr 1.0 / mean_p 0.591. **The submission library
+is the hybrid** (650M: FBD 0.221, MMD 0.357, Recall 0.899, Precision 0.863,
+Conformity 0.507, Diversity 0.848). Remaining pre-submission work: ops
+closeout (head-only re-save, weight packaging, disclosure, verify dry-run,
+abstract).
