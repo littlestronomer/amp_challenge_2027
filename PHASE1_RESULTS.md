@@ -288,3 +288,15 @@ the submission library remains the original seed44 decode.
 gate instrument for any library-affecting change. Coarse rankings (seed44 vs
 v2) transferred; fine decode deltas did not. L0 closed as null: decode
 parameters are not a reliable lever at this delta scale.
+
+## seqme benchmark tutorial cross-check (2026-08-30)
+
+The szczurek-lab seqme tutorial table is NOT our protocol: 3,000-sample
+subsets, three reference datasets (UniProt/AMPs/AMP-data) with per-metric
+references, conformity on [amphiphilicity, charge], plus FKEA and amPEPpy
+which we did not compute. No row-to-row comparison with our numbers is valid.
+Actions taken: FKEA and a tutorial-configured twin ConformityScore added to
+metrics_official (informational); amPEPpy flagged as the one missing axis —
+it needs a py3.8 conda env (seqme-thirdparty) and is follow-up infra. If the
+official Phase-1 suite includes an activity surrogate, our panel-classifier
+breadth is a proxy, not a guarantee, of that axis.

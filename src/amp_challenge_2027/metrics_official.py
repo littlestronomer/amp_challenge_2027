@@ -39,7 +39,9 @@ def build_metric_list(
     metrics.append(("Diversity", sm.metrics.Diversity()))
     metrics.append(("Length", sm.metrics.Length()))
     try:
-        metrics.append(("NGramJaccard", sm.metrics.NGramJaccardSimilarity(reference=reference, n=3)))
+        metrics.append(
+            ("NGramJaccard", sm.metrics.NGramJaccardSimilarity(reference=reference, n=3))
+        )
     except Exception as e:
         print(f"[metrics] skip NGramJaccard: {e}")
 
@@ -69,6 +71,13 @@ def build_metric_list(
         metrics.append(("MMD", sm.metrics.MMD(reference=reference, embedder=embedder)))
     except Exception as e:
         print(f"[metrics] skip MMD: {e}")
+    # FKEA: the seqme benchmark's extra embedding-space distribution metric
+    # (organizers' own tutorial includes it). Informational until the official
+    # suite is known; identical constructor args to the tutorial.
+    try:
+        metrics.append(("FKEA", sm.metrics.FKEA(embedder=embedder, bandwidth=1.0, strict=False)))
+    except Exception as e:
+        print(f"[metrics] skip FKEA: {e}")
     # Precision and Recall are separate classes in seqme.
     for cls_name in ("Precision", "Recall"):
         cls = getattr(sm.metrics, cls_name, None)
@@ -87,10 +96,26 @@ def build_metric_list(
     if predictors:
         try:
             metrics.append(
-                ("ConformityScore", sm.metrics.ConformityScore(reference=reference, predictors=predictors))
+                (
+                    "ConformityScore",
+                    sm.metrics.ConformityScore(reference=reference, predictors=predictors),
+                )
             )
         except Exception as e:
             print(f"[metrics] skip ConformityScore: {e}")
+    # Second conformity readout matching the seqme tutorial's predictor set
+    # ([amphiphilicity, charge]) — the organizers' own default configuration.
+    # Informational twin of the 3-predictor score above.
+    try:
+        tutorial_predictors = [sm.models.Amphiphilicity(), sm.models.Charge()]
+        metrics.append(
+            (
+                "ConformityScore(amp+charge)",
+                sm.metrics.ConformityScore(reference=reference, predictors=tutorial_predictors),
+            )
+        )
+    except Exception as e:
+        print(f"[metrics] skip tutorial conformity: {e}")
 
     # Family 4: Authenticity
     try:
