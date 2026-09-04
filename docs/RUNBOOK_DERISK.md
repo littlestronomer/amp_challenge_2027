@@ -142,3 +142,28 @@ default under identical eval. BINDING GATE (added after the 0.95 revert):
 be confirmed with a 650M eval before swapping defaults (the top-p 0.95 cell
 won at 8M by −23% FBD and evaporated at 650M). L0 outcome: null at 650M; the
 default stays 0.9.
+
+## Hybrid library promotion (locked 75/25) — entry-point wiring
+
+`uv run generate` now auto-blends when `checkpoint/generator_blend/` exists
+(absent → legacy single-checkpoint bytes, byte-compat). Explicit control:
+`--blend-checkpoint <dir>` / `--blend-ratio N` (default 3 = 75/25).
+
+Promotion on the box:
+
+```bash
+mkdir -p checkpoint/generator_blend
+cp checkpoint/generator-e100_p10-cond/{config.json,model.pt} checkpoint/generator_blend/
+
+# reproduce the locked hybrid through the entry point and verify bytes
+CUDA_VISIBLE_DEVICES=1 uv run python -m amp_challenge_2027.generate \
+    --seed 42 --out-dir generate/submission-final
+cmp generate/submission-final/library.fasta \
+    generate/hybrid-75-25/library.fasta && echo "HYBRID: IDENTICAL"
+```
+
+If IDENTICAL: the hybrid (650M: FBD 0.221 / MMD 0.357 / Recall 0.899 /
+Precision 0.863 / Conformity 0.507) becomes the submission library; verify
+top-100 potency on the hybrid pool; weights for BOTH checkpoints must ship
+in the repo at packaging time (validator clone must contain
+checkpoint/generator + checkpoint/generator_blend).

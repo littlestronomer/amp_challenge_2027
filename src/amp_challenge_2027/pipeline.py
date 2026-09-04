@@ -78,6 +78,47 @@ def clean_candidates(sequences: list[str], reference_set: set[str]) -> list[str]
     return _clean(sequences, reference_set)
 
 
+def interleave_blend(
+    primary: list[str],
+    secondary: list[str],
+    *,
+    per_primary: int,
+    per_secondary: int,
+    n: int,
+) -> list[str]:
+    """Deterministic weighted interleave of two candidate streams.
+
+    Mirrors the probe construction that set the locked 75/25 hybrid exactly:
+    take ``per_primary`` from ``primary`` then ``per_secondary`` from
+    ``secondary``, skipping duplicates (global first-occurrence wins), stop at
+    ``n``; when one stream is exhausted the other continues alone. Pure
+    function of (primary, secondary, ratio, n) — byte-reproducible.
+    """
+    if per_primary < 1 or per_secondary < 1:
+        raise ValueError("per_primary/per_secondary must be >= 1")
+    out: list[str] = []
+    seen: set[str] = set()
+    i = j = 0
+    while len(out) < n and (i < len(primary) or j < len(secondary)):
+        for _ in range(per_primary):
+            if i < len(primary):
+                if primary[i] not in seen:
+                    seen.add(primary[i])
+                    out.append(primary[i])
+                    if len(out) >= n:
+                        break
+                i += 1
+        for _ in range(per_secondary):
+            if j < len(secondary):
+                if secondary[j] not in seen:
+                    seen.add(secondary[j])
+                    out.append(secondary[j])
+                    if len(out) >= n:
+                        break
+                j += 1
+    return out[:n]
+
+
 def _torch_ready() -> bool:
     try:
         import torch  # noqa: F401
@@ -182,6 +223,7 @@ __all__ = [
     "DEFAULT_WEIGHTS",
     "load_pool_fastas",
     "clean_candidates",
+    "interleave_blend",
     "build_composite_scorer",
     "score_candidates",
 ]

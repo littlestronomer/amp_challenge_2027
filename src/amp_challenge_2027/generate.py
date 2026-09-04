@@ -40,6 +40,7 @@ import numpy as np
 from amp_challenge_2027.config import (
     AMINO_ACIDS,
     ANTIBACTERIAL_FASTA,
+    CHECKPOINT_DIR,
     DEFAULT_SEED,
     GENERATE_OUTPUT_DIR,
     GENERATOR_DIR,
@@ -217,6 +218,21 @@ def main() -> None:
         default=GENERATOR_DIR,
         help="trained generator checkpoint directory (default: checkpoint/generator)",
     )
+    parser.add_argument(
+        "--blend-checkpoint",
+        type=Path,
+        default=None,
+        help="secondary checkpoint blended into the library (default: auto-detect "
+        "checkpoint/generator_blend — the locked 75/25 hybrid promotion; absent "
+        "→ single-checkpoint generation, byte-identical to the legacy behavior)",
+    )
+    parser.add_argument(
+        "--blend-ratio",
+        type=int,
+        default=3,
+        help="blend interleave ratio: N sequences from the primary checkpoint "
+        "per 1 from the blend checkpoint (default 3 = the locked 75/25 hybrid)",
+    )
     parser.add_argument("--temperature", type=float, default=1.0, help="sampling temperature")
     parser.add_argument(
         "--sample-top-k", type=int, default=50, help="top-k sampling (0 to disable)"
@@ -347,6 +363,12 @@ def main() -> None:
             and args.checkpoint.exists()
             and (args.checkpoint / "config.json").exists()
         )
+        # Blend auto-detect: the repo ships the locked-hybrid secondary at a
+        # stable path; its PRESENCE defines the default output (a fresh clone
+        # reproduces the hybrid; without it, legacy single-checkpoint bytes).
+        if args.blend_checkpoint is None:
+            auto = CHECKPOINT_DIR / "generator_blend"
+            args.blend_checkpoint = auto if (auto / "config.json").exists() else None
         all_sequences = _sample_candidates(args, use_model, reference_set, target)
 
     clean = clean_candidates(all_sequences, reference_set)
@@ -423,7 +445,71 @@ def _sample_candidates(
     Oversamples in rounds until the CLEAN candidate count hits the target.
     Each round checks the cheap validity/dedup/overlap count instead of running
     full selection, so rounds cost almost nothing.
+
+    With a blend checkpoint active, BOTH streams are sampled (primary at
+    ``seed``, secondary at the same round seed — its own generator state, so
+    each stream reproduces the corresponding standalone run's candidate
+    order), cleaned separately, and interleaved per ``--blend-ratio``. The
+    clean() prefix property (order-preserving dedup) makes the interleaved
+    library byte-identical to blending two standalone libraries.
     """
+    blend_dir = getattr(args, "blend_checkpoint", None)
+    per_b = int(getattr(args, "blend_ratio", 3))
+    use_blend = (
+        blend_dir is not None and use_model and (blend_dir / "config.json").exists() and per_b >= 1
+    )
+    if blend_dir is not None and not (blend_dir / "config.json").exists():
+        print(f"[generate] blend checkpoint missing config ({blend_dir}); blending disabled")
+
+    if not use_blend:
+        return _sample_single(args, use_model, reference_set, target)
+
+    print(
+        f"[generate] blend: {per_b}:1 primary {args.checkpoint.name} + secondary {blend_dir.name}"
+    )
+    primary_raw = _sample_from(args.checkpoint, args, reference_set, target * 2)
+    secondary_n = max(int(target * 2 * 1 / (per_b + 1)), target)
+    secondary_raw = _sample_from(blend_dir, args, reference_set, secondary_n)
+
+    from amp_challenge_2027.pipeline import clean_candidates, interleave_blend
+
+    primary_clean = clean_candidates(primary_raw, reference_set)
+    secondary_clean = clean_candidates(secondary_raw, reference_set)
+    blended = interleave_blend(
+        primary_clean, secondary_clean, per_primary=per_b, per_secondary=1, n=target
+    )
+    print(
+        f"[generate] blended {len(blended)} candidates "
+        f"(primary {len(primary_clean)} clean, secondary {len(secondary_clean)} clean)"
+    )
+    return blended
+
+
+def _sample_from(
+    checkpoint_dir: Path, args: argparse.Namespace, reference_set: set[str], n: int
+) -> list[str]:
+    """One sampling pass from ``checkpoint_dir`` using the shared decode args."""
+    return generate_with_model(
+        n,
+        seed=args.seed,
+        length=args.length,
+        device=args.device,
+        checkpoint_dir=checkpoint_dir,
+        temperature=args.temperature,
+        top_k=args.sample_top_k,
+        top_p=args.top_p,
+        repetition_penalty=args.repetition_penalty,
+        reference_set=reference_set or None,
+        charge_conditioned=None,  # auto-detect from each checkpoint's config
+    )
+
+
+def _sample_single(
+    args: argparse.Namespace,
+    use_model: bool,
+    reference_set: set[str],
+    target: int,
+) -> list[str]:
     all_sequences: list[str] = []
     round_idx = 0
     while True:
