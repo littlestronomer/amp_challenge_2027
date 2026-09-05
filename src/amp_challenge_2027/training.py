@@ -19,6 +19,7 @@ module imports cleanly in the torch-free inference environment.
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 from dataclasses import dataclass
@@ -77,6 +78,34 @@ def seed_everything(seed: int) -> None:
 # ---------------------------------------------------------------------------
 # Training configuration
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class EarlyStoppingState:
+    """Track consecutive validation failures, independently of model saves."""
+
+    patience: int | None = None
+    best_loss: float = float("inf")
+    best_step: int | None = None
+    bad_evaluations: int = 0
+
+    def __post_init__(self) -> None:
+        if self.patience is not None and self.patience < 1:
+            raise ValueError("patience must be positive or None")
+
+    def observe(self, loss: float, step: int) -> bool:
+        if not math.isfinite(loss):
+            raise ValueError(f"non-finite validation loss at step {step}: {loss}")
+        if loss < self.best_loss:
+            self.best_loss, self.best_step = loss, step
+            self.bad_evaluations = 0
+            return True
+        self.bad_evaluations += 1
+        return False
+
+    @property
+    def should_stop(self) -> bool:
+        return self.patience is not None and self.bad_evaluations >= self.patience
 
 
 @dataclass
@@ -431,6 +460,7 @@ def build_cosine_scheduler(
 
 
 __all__ = [
+    "EarlyStoppingState",
     "TrainConfig",
     "PeptideDataset",
     "Logger",

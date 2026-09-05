@@ -8,7 +8,9 @@ metric named 'library'. These tests pin both layouts with duck-typed frames
 
 from __future__ import annotations
 
+import pytest
 import sweep_selection
+from experiment_utils import metrics_for_json
 
 
 class _Cell:
@@ -102,3 +104,21 @@ def test_tall_layout_legacy_behavior():
     assert row["Uniqueness"] == 1.0
     assert row["FBD"] == 0.51
     assert row["FBD.deviation"] == 0.02
+
+
+def test_metrics_json_allows_missing_deviation_but_not_missing_metrics():
+    cols = [("FBD", "value"), ("FBD", "deviation")]
+    df = _Frame(["library"], cols, _Cell({
+        ("library", cols[0]): 0.25, ("library", cols[1]): float("nan"),
+    }))
+    assert metrics_for_json(df, expected_names=["FBD"]) == {"FBD": 0.25, "FBD.deviation": None}
+    with pytest.raises(ValueError, match="Incomplete metric results"):
+        metrics_for_json(df, expected_names=["FBD", "MMD"])
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_metrics_json_rejects_nonfinite_primary_measurement(value):
+    cols = [("FBD", "value")]
+    df = _Frame(["library"], cols, _Cell({("library", cols[0]): value}))
+    with pytest.raises(ValueError, match="non-finite primary"):
+        metrics_for_json(df, expected_names=["FBD"])

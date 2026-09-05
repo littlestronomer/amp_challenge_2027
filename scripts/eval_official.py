@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--json-out", type=Path, default=None, help="Flat metrics for experiment summaries")
+    parser.add_argument("--strict", action="store_true", help="Fail if any requested metric is unavailable")
     args = parser.parse_args(argv)
 
     import seqme as sm
@@ -54,7 +56,7 @@ def main(argv: list[str] | None = None) -> None:
     print("[eval] loading ESM-2 embedder...")
     embedder = sm.models.ESM2(model_name=args.esm_model, device=args.device)
 
-    metrics = build_metric_list(reference, embedder)
+    metrics = build_metric_list(reference, embedder, strict=args.strict)
     names = [n for n, _ in metrics]
     metric_objs = [m for _, m in metrics]
     print(f"[eval] computing {len(metric_objs)} metrics: {names}")
@@ -66,10 +68,20 @@ def main(argv: list[str] | None = None) -> None:
     print("=" * 80)
     print(df.to_string())
 
+    if args.strict or args.json_out:
+        from experiment_utils import metrics_for_json
+
+        row = metrics_for_json(
+            df, expected_names=[metric.name for metric in metric_objs] if args.strict else None,
+        )
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(args.out)
         print(f"\n[eval] wrote {args.out}")
+    if args.json_out:
+        from experiment_utils import write_json
+
+        write_json(args.json_out, row)
 
 
 if __name__ == "__main__":

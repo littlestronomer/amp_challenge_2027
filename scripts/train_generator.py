@@ -28,6 +28,8 @@ Run:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import math
 import sys
 from pathlib import Path
@@ -100,6 +102,7 @@ def train_sft(
     weight_decay: float = 0.01,
     warmup_ratio: float = 0.05,
     seed: int = DEFAULT_SEED,
+    split_seed: int | None = None,
     device: str = "cuda",
     out_dir: Path = GENERATOR_DIR,
     # Architecture
@@ -130,6 +133,7 @@ def train_sft(
     from amp_challenge_2027.generator import build_model, save_model
     from amp_challenge_2027.model import DecoderConfig
     from amp_challenge_2027.training import (
+        EarlyStoppingState,
         Logger,
         build_cosine_scheduler,
         enable_determinism,
@@ -170,11 +174,41 @@ def train_sft(
     # --- Train/val split ---------------------------------------------------
     import numpy as np
 
-    rng = np.random.default_rng(seed)
+    effective_split_seed = seed if split_seed is None else split_seed
+    rng = np.random.default_rng(effective_split_seed)
     perm = rng.permutation(len(sequences))
     split = int(0.95 * len(sequences))
     train_seqs = [sequences[i] for i in perm[:split]]
     val_seqs = [sequences[i] for i in perm[split:]]
+
+    # The corpus and split are fixed across initialization seeds when
+    # --split-seed is supplied. Resume must use the same experiment inputs.
+    out_dir = Path(out_dir)
+    manifest = {
+        "format_version": 2,
+        "data_sha256": hashlib.sha256(Path(data_path).read_bytes()).hexdigest(),
+        "seed": seed,
+        "split_seed": effective_split_seed,
+        "train_sha256": hashlib.sha256("\n".join(train_seqs).encode()).hexdigest(),
+        "val_sha256": hashlib.sha256("\n".join(val_seqs).encode()).hexdigest(),
+        "n_train": len(train_seqs),
+        "n_val": len(val_seqs),
+        "model": cfg.to_dict(),
+    }
+    manifest_path = out_dir / "training_manifest.json"
+    previous = latest_checkpoint(out_dir / "checkpoints")
+    if resume and previous is not None:
+        if not manifest_path.exists() or json.loads(manifest_path.read_text()) != manifest:
+            raise ValueError(
+                "Resume corpus, split, model, or trainer version differs. "
+                "Start this experiment in a new --out-dir; historical runs remain usable for sweeps."
+            )
+    elif previous is not None or (out_dir / "model.pt").exists():
+        raise ValueError("Output already contains model artifacts; use a new --out-dir for a fresh run")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    (out_dir / "config.json").write_text(json.dumps(cfg.to_dict(), indent=2) + "\n")
+    print(f"[train] split seed {effective_split_seed}: {len(train_seqs)} train / {len(val_seqs)} val")
 
     if conditioning == "charge":
         train_bins = [charge_bins[i] for i in perm[:split]]
@@ -250,14 +284,20 @@ def train_sft(
     autocast_ctx = _make_autocast(precision)
     scaler = torch.amp.GradScaler("cuda") if precision == "fp16" else None
 
-    start_epoch, start_step, best_val = 0, 0, float("inf")
+    start_epoch, start_step = 0, 0
+    stopping = EarlyStoppingState(patience=patience)
     if resume:
         ckpt = latest_checkpoint(ckpt_dir)
         if ckpt is not None:
             meta = load_checkpoint(ckpt, model, optimizer, map_location=device)
             start_epoch = meta["epoch"]
             start_step = meta["step"]
-            best_val = meta.get("best_val") or float("inf")
+            if meta.get("best_val") is not None:
+                stopping.best_loss = meta["best_val"]
+            stopping.best_step = meta["extra"].get("best_step")
+            stopping.bad_evaluations = meta["extra"].get("bad_evaluations", 0)
+            if stopping.best_step is not None and not (out_dir / "model.pt").exists():
+                raise ValueError("Cannot resume: the saved best inference model is missing")
             # Advance the scheduler to the start of the RESUMED EPOCH's step
             # range, not to ``start_step``: mid-epoch checkpoints restart that
             # whole epoch, so stepping to start_step would double-count the
@@ -276,11 +316,21 @@ def train_sft(
 
     # --- Training loop -----------------------------------------------------
     step = start_step
-    patience_left = patience or 0
+
+    def _save_training(path: Path, epoch: int, epoch_start: int) -> None:
+        save_checkpoint(
+            path, model=model, optimizer=optimizer, step=step, epoch=epoch,
+            best_val=stopping.best_loss if math.isfinite(stopping.best_loss) else None,
+            extra={
+                "epoch_start_step": epoch_start,
+                "best_step": stopping.best_step,
+                "bad_evaluations": stopping.bad_evaluations,
+            },
+        )
 
     def _optimizer_step(epoch: int) -> None:
         """Clip, step optimizer+scheduler, log, checkpoint, early-stopping eval."""
-        nonlocal step, best_val, patience_left
+        nonlocal step
         if scaler is not None:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -307,18 +357,6 @@ def train_sft(
                 f"aux {out.aux_loss.item():.4f} lr {lr_now:.2e}"
             )
 
-        if save_every and step % save_every == 0:
-            save_checkpoint(
-                ckpt_dir / f"ckpt_{step}.pt",
-                model=model,
-                optimizer=optimizer,
-                step=step,
-                epoch=epoch,
-                best_val=best_val,
-                extra={"epoch_start_step": epoch_start_step},
-            )
-            save_model(model, out_dir, config=cfg)  # keep inference ckpt fresh
-
         if eval_every and val_loader is not None and step % eval_every == 0:
             val_loss = _evaluate(model, val_loader, device, autocast_ctx)
             logger.log({"val/lm_loss": val_loss, "val/ppl": math.exp(min(val_loss, 20))}, step=step)
@@ -326,16 +364,19 @@ def train_sft(
                 f"[train] step {step} val lm_loss {val_loss:.4f} "
                 f"ppl {math.exp(min(val_loss, 20)):.1f}"
             )
-            if val_loss < best_val:
-                best_val = val_loss
+            if stopping.observe(val_loss, step):
                 save_model(model, out_dir, config=cfg)
-                print(f"[train] new best val {best_val:.4f}; saved inference checkpoint")
-            elif patience is not None:
-                patience_left -= 1
-                if patience_left <= 0:
-                    print(f"[train] early stopping at step {step} (patience={patience})")
-                    save_model(model, out_dir, config=cfg)
-                    raise _EarlyStop()
+                (out_dir / "selection.json").write_text(json.dumps({
+                    "criterion": "validation_loss", "step": step, "val_loss": val_loss,
+                }, indent=2) + "\n")
+                print(f"[train] new best val {stopping.best_loss:.4f}; saved inference checkpoint")
+            if stopping.should_stop:
+                print(f"[train] early stopping at step {step} (patience={patience})")
+                _save_training(ckpt_dir / f"ckpt_stop_{step}.pt", epoch, epoch_start_step)
+                raise _EarlyStop()
+
+        if save_every and step % save_every == 0:
+            _save_training(ckpt_dir / f"ckpt_{step}.pt", epoch, epoch_start_step)
 
     for epoch in range(start_epoch, epochs):
         epoch_start_step = step
@@ -394,18 +435,18 @@ def train_sft(
             f"[train] epoch {epoch + 1}/{epochs} avg lm_loss {avg:.4f} "
             f"ppl {math.exp(min(avg, 20)):.2f}"
         )
-        save_checkpoint(
-            ckpt_dir / f"ckpt_epoch{epoch + 1}.pt",
-            model=model,
-            optimizer=optimizer,
-            step=step,
-            epoch=epoch + 1,
-            best_val=best_val,
-            extra={"epoch_start_step": step},
-        )
+        _save_training(ckpt_dir / f"ckpt_epoch{epoch + 1}.pt", epoch + 1, step)
 
-    save_model(model, out_dir, config=cfg)
-    print(f"[train] saved generator ({tag}, {n_params / 1e6:.1f}M) to {out_dir}")
+    save_model(model, out_dir / "last", config=cfg)
+    if stopping.best_step is None:
+        save_model(model, out_dir, config=cfg)
+        (out_dir / "selection.json").write_text(json.dumps({
+            "criterion": "last_no_validation", "step": step, "val_loss": None,
+        }, indent=2) + "\n")
+    print(
+        f"[train] saved last generator to {out_dir / 'last'}; "
+        f"inference model at {out_dir} (best validation step={stopping.best_step})"
+    )
     logger.close()
 
 
@@ -641,6 +682,10 @@ def main() -> None:
     p_sft.add_argument("--batch-size", type=int, default=128)
     p_sft.add_argument("--lr", type=float, default=3e-4)
     p_sft.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    p_sft.add_argument(
+        "--split-seed", type=int, default=None,
+        help="Fixed train/validation split seed (default: same as --seed for legacy compatibility)",
+    )
     p_sft.add_argument("--device", type=str, default="cuda")
     p_sft.add_argument("--out-dir", type=Path, default=GENERATOR_DIR)
     # Architecture
@@ -703,6 +748,7 @@ def main() -> None:
             batch_size=args.batch_size,
             lr=args.lr,
             seed=args.seed,
+            split_seed=args.split_seed,
             device=args.device,
             out_dir=args.out_dir,
             residual=args.residual,

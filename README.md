@@ -109,6 +109,9 @@ To submit, head to the Kaggle competition page: https://www.kaggle.com/competiti
 
 ## Validation
 
+For controlled generator checkpoint and 50k-library selection experiments on
+the SSH training machine, see [the generator experiment runbook](docs/RUNBOOK_GENERATOR_EXPERIMENTS.md).
+
 Verify your submission with:
 
 ```bash

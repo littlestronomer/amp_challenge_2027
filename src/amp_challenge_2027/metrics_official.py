@@ -22,12 +22,14 @@ def build_metric_list(
     embedder: Any | None = None,
     *,
     cheap: bool = False,
+    strict: bool = False,
 ) -> list[tuple[str, Any]]:
     """Build (name, metric) pairs replicating the Phase-1 protocol.
 
     Requires ``embedder`` unless ``cheap=True``. Metrics whose constructor is
     unavailable in the installed seqme version are skipped with a note rather
-    than failing the whole evaluation.
+    than failing the whole evaluation, unless ``strict=True`` requires the
+    complete local comparison protocol.
     """
     import seqme as sm
 
@@ -111,7 +113,10 @@ def build_metric_list(
         metrics.append(
             (
                 "ConformityScore(amp+charge)",
-                sm.metrics.ConformityScore(reference=reference, predictors=tutorial_predictors),
+                sm.metrics.ConformityScore(
+                    reference=reference, predictors=tutorial_predictors,
+                    name="Conformity score (amp+charge)",
+                ),
             )
         )
     except Exception as e:
@@ -123,6 +128,18 @@ def build_metric_list(
     except Exception as e:
         print(f"[metrics] skip AuthPct: {e}")
 
+    if strict:
+        required = {
+            "Uniqueness", "Novelty", "Diversity", "Length", "NGramJaccard",
+            "FBD", "MMD", "FKEA", "Precision", "Recall", "ConformityScore",
+            "ConformityScore(amp+charge)", "AuthPct",
+        }
+        missing = required - {name for name, _ in metrics}
+        if missing or len(predictors) != 3:
+            raise RuntimeError(
+                f"Incomplete evaluation: missing {sorted(missing)}, "
+                f"property predictors {len(predictors)}/3"
+            )
     return metrics
 
 

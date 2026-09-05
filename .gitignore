@@ -36,9 +36,12 @@ checkpoint/reward/*
 !checkpoint/reward/classifier.pt
 !checkpoint/reward/classifier_panel.pt
 !checkpoint/reward/config.json
+!checkpoint/reward/classifier_config.json
+!checkpoint/reward/classifier_panel_config.json
 checkpoint/reward_hemo/*
 !checkpoint/reward_hemo/classifier.pt
 !checkpoint/reward_hemo/config.json
+!checkpoint/reward_hemo/classifier_config.json
 *.ckpt
 
 # Eval artifacts
