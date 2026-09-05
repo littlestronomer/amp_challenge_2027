@@ -45,6 +45,12 @@ checkpoint/reward_hemo/*
 eval/
 runs/
 wandb/
+logs/
+sweep_results/
+sweep_*.log
+
+# Validator clone target (verify_submission default) — NEVER commit a nested repo
+submission/
 
 # Notebooks
 .ipynb_checkpoints/
