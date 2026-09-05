@@ -1,0 +1,22 @@
+{
+  "vocab_size": 24,
+  "hidden_size": 384,
+  "num_layers": 6,
+  "num_heads": 6,
+  "max_position_embeddings": 52,
+  "ffn_inner": null,
+  "dropout": 0.1,
+  "residual": "block_attnres",
+  "ffn": "dense",
+  "attnres_num_blocks": 4,
+  "moe_num_experts": 8,
+  "moe_num_active": 2,
+  "moe_load_balance_weight": 0.01,
+  "pad_token_id": 0,
+  "bos_token_id": 1,
+  "eos_token_id": 2,
+  "tie_word_embeddings": true,
+  "conditioning": "charge",
+  "num_charge_bins": 21,
+  "charge_min": -8
+}

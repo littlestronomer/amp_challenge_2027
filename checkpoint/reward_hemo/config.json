@@ -1,0 +1,9 @@
+{
+  "esm_model": "facebook/esm2_t12_35M_UR50D",
+  "unfreeze_layers": 4,
+  "type": "binary_activity_classifier",
+  "task": "binary",
+  "checkpoint_format": "head-only",
+  "temperature": 3.94,
+  "val_auroc": 0.9319
+}
