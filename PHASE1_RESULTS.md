@@ -397,3 +397,13 @@ Binary head: frozen 0.786 deployed. Hemo head: frozen 0.846 (audit-only,
 weight 0). All shippable artifacts are now frozen-backbone head-only
 (<3 MB each). Quoted claims: deployed panel 0.81 (random-split; identity-
 clustered estimate for the fine-tuned reference was 0.808).
+
+## SUBMISSION VALIDATION PASSED (2026-09-05)
+
+`verify_submission.py` on a cold clone of origin/main: weights shipped
+in-repo (dual generators via auto-detected blend + frozen classifier heads),
+hybrid library byte-reproduced (primary 65,027 / secondary 79,909 clean —
+exact stream counts), all validity/novelty/overlap/similarity checks green,
+two-run byte-comparison green. **The repository is submittable as-is.**
+Remaining: Kaggle-side upload (abstract, library, top-100, repo link),
+organizer access grants, public/private decision for the full track.
