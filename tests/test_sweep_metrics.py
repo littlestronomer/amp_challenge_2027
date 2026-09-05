@@ -8,9 +8,11 @@ metric named 'library'. These tests pin both layouts with duck-typed frames
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 import sweep_selection
-from experiment_utils import metrics_for_json
+from experiment_utils import evaluate_library, metrics_for_json
 
 
 class _Cell:
@@ -122,3 +124,15 @@ def test_metrics_json_rejects_nonfinite_primary_measurement(value):
     df = _Frame(["library"], cols, _Cell({("library", cols[0]): value}))
     with pytest.raises(ValueError, match="non-finite primary"):
         metrics_for_json(df, expected_names=["FBD"])
+
+
+def test_evaluation_failure_exposes_log_and_does_not_mark_complete(tmp_path, monkeypatch):
+    def failed_process(command, **kwargs):
+        kwargs["stdout"].write("RuntimeError: original evaluator failure\n")
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(subprocess, "run", failed_process)
+    with pytest.raises(RuntimeError, match="original evaluator failure") as error:
+        evaluate_library(tmp_path, reference=tmp_path / "ref.fasta", esm_model="test", device="cpu")
+    assert str(tmp_path / "evaluation.log") in str(error.value)
+    assert not (tmp_path / "evaluation.json").exists()

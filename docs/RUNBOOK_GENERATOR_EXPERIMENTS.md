@@ -72,6 +72,38 @@ Changes to code, checkpoints, reference, seeds or evaluation parameters require
 a NEW `--out` directory so results cannot be silently mixed. Do not run two
 processes writing the same experiment directory.
 
+### Recovering the seqme 0.5.1 evaluation failure
+
+The locked seqme does not export `Amphiphilicity`. The initial strict evaluator
+incorrectly required the auxiliary `ConformityScore(amp+charge)` readout.
+The fix keeps this readout optional and still requires all 12 supported
+metrics, including the core charge/hydrophobicity/hydrophobic-moment conformity
+score. The HF unauthenticated-download warning is unrelated to this failure.
+
+After pulling the fix, keep the failed run intact and import its verified
+generation into a new run (do not edit `run.json` to bypass provenance checks):
+
+```bash
+git pull --ff-only origin main
+CUDA_VISIBLE_DEVICES=1 uv run --no-sync python -u scripts/sweep_checkpoints.py \
+  --checkpoint-dir checkpoint/generator-e100_p10-seed44 \
+  --max-snapshots 4 --include-hybrid \
+  --reuse-generated-from sweep_results/checkpoints-seed44-v1 \
+  --out sweep_results/checkpoints-seed44-v2
+```
+
+`--reuse-generated-from` is an explicit choice to reuse datasets produced by
+older code; use it only after evaluation-only fixes, not generation changes.
+It checks weights, reference, sampling/settings, runtime versions and output
+hashes, copies only completed generation stages, and records the original
+code provenance in `generation_source.json`. All metrics are recomputed.
+The source is read-only and is still needed for verified reruns of this command;
+keep the reuse flag when resuming. Missing cells are generated normally.
+Original generation logs remain in the source directory.
+
+For this recovery, use `checkpoints-seed44-v2` instead of `checkpoints-seed44-v1`
+in the library-selection commands below.
+
 These are library experiments, not submission pairs: they do not produce
 `top.fasta`. The original submission entry point and checkpoints are unchanged.
 The 650M metrics are our local comparison protocol, not the organizers' full

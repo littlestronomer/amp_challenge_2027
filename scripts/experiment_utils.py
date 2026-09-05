@@ -110,8 +110,16 @@ def evaluate_library(directory: Path, *, reference: Path, esm_model: str, device
             "--json-out", str((directory / "metrics.json").resolve()),
         ]
         print(f"[experiment] evaluating {directory} with {esm_model}", flush=True)
-        with (directory / "evaluation.log").open("w") as log:
-            subprocess.run(command, cwd=REPO_ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
+        log_path = directory / "evaluation.log"
+        try:
+            with log_path.open("w") as log:
+                subprocess.run(command, cwd=REPO_ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
+        except subprocess.CalledProcessError as error:
+            from collections import deque
+
+            with log_path.open() as log:
+                tail = "".join(deque(log, maxlen=40))
+            raise RuntimeError(f"Evaluation failed; see {log_path}\n{tail}") from error
         mark_files(directory, "evaluation.json", ["library.fasta", "metrics.csv", "metrics.json"])
     return json.loads((directory / "metrics.json").read_text())
 

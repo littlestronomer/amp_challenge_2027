@@ -29,7 +29,8 @@ def build_metric_list(
     Requires ``embedder`` unless ``cheap=True``. Metrics whose constructor is
     unavailable in the installed seqme version are skipped with a note rather
     than failing the whole evaluation, unless ``strict=True`` requires the
-    complete local comparison protocol.
+    12 supported metrics and all three core property predictors. The optional
+    amphiphilicity/charge readout is not available in the locked seqme 0.5.1.
     """
     import seqme as sm
 
@@ -54,13 +55,13 @@ def build_metric_list(
 
     # Property predictors for ConformityScore (modlamp-backed).
     predictors = []
-    for name, cls in [
-        ("charge", sm.models.Charge),
-        ("hydrophobicity", sm.models.Hydrophobicity),
-        ("hydrophobic_moment", sm.models.HydrophobicMoment),
+    for name, cls_name in [
+        ("charge", "Charge"),
+        ("hydrophobicity", "Hydrophobicity"),
+        ("hydrophobic_moment", "HydrophobicMoment"),
     ]:
         try:
-            predictors.append(cls())
+            predictors.append(getattr(sm.models, cls_name)())
         except Exception as e:
             print(f"[metrics] skip predictor {name}: {e}")
 
@@ -105,9 +106,9 @@ def build_metric_list(
             )
         except Exception as e:
             print(f"[metrics] skip ConformityScore: {e}")
-    # Second conformity readout matching the seqme tutorial's predictor set
-    # ([amphiphilicity, charge]) — the organizers' own default configuration.
-    # Informational twin of the 3-predictor score above.
+    # Optional historical tutorial readout, separate from the core three-
+    # predictor score. seqme 0.5.1 does not export Amphiphilicity. Do not invent
+    # a substitute with potentially different descriptor settings/semantics.
     try:
         tutorial_predictors = [sm.models.Amphiphilicity(), sm.models.Charge()]
         metrics.append(
@@ -120,7 +121,7 @@ def build_metric_list(
             )
         )
     except Exception as e:
-        print(f"[metrics] skip tutorial conformity: {e}")
+        print(f"[metrics] optional amp+charge conformity unavailable: {e}")
 
     # Family 4: Authenticity
     try:
@@ -132,7 +133,7 @@ def build_metric_list(
         required = {
             "Uniqueness", "Novelty", "Diversity", "Length", "NGramJaccard",
             "FBD", "MMD", "FKEA", "Precision", "Recall", "ConformityScore",
-            "ConformityScore(amp+charge)", "AuthPct",
+            "AuthPct",
         }
         missing = required - {name for name, _ in metrics}
         if missing or len(predictors) != 3:

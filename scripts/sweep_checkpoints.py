@@ -32,6 +32,65 @@ from amp_challenge_2027.data import read_reference_set, write_fasta
 from amp_challenge_2027.generate import generate_with_model
 from amp_challenge_2027.pipeline import clean_candidates, interleave_blend
 
+GENERATION_FILES = ("pool.fasta", "library.fasta", "generation_stats.json")
+
+
+def generation_source(source: Path, recipe: dict) -> dict:
+    """Explicitly reuse generated datasets after an evaluation-only code fix.
+
+    The old code identity is preserved, never relabeled as current generation.
+    All non-code settings, weights and runtime versions must match. Completed
+    evaluation outputs are deliberately excluded from the import.
+    """
+    previous = json.loads((source / "run.json").read_text())
+    excluded = {"code", "reuse_generation"}
+    if {k: v for k, v in previous.items() if k not in excluded} != {
+        k: v for k, v in recipe.items() if k not in excluded
+    }:
+        raise ValueError("Generation source inputs differ: checkpoints, sampling and evaluation settings must match")
+    def runtime(code):
+        return {k: v for k, v in code.items() if k not in {"commit", "source_sha256"}}
+
+    if runtime(previous["code"]) != runtime(recipe["code"]):
+        raise ValueError("Generation source runtime differs; do not mix environments in this recovery")
+    cells = {}
+    for case in recipe["cases"]:
+        for seed in recipe["seeds"]:
+            key = f"{case['name']}/seed{seed}"
+            directory = source / key
+            marker = directory / "generation.json"
+            if not marker.exists():
+                continue  # Interrupted generation is not a completed dataset.
+            files = json.loads(marker.read_text())["files"]
+            if not set(GENERATION_FILES).issubset(files) or set(files) - {
+                *GENERATION_FILES, "generation_source.json",
+            }:
+                raise ValueError(f"Invalid generation file manifest: {marker}")
+            verify_files(directory, "generation.json")
+            cells[key] = {"files": files, "marker_sha256": sha256(marker)}
+    return {
+        "directory": str(source.resolve()), "run_sha256": sha256(source / "run.json"),
+        "code": previous["code"], "cells": cells,
+    }
+
+
+def copy_generation(source: dict, key: str, destination: Path) -> None:
+    """Copy verified FASTAs/stats, keeping provenance and leaving source intact."""
+    directory = Path(source["directory"]) / key
+    cell = source["cells"][key]
+    if sha256(directory / "generation.json") != cell["marker_sha256"]:
+        raise ValueError("Generation source changed after validation")
+    verify_files(directory, "generation.json")
+    for name in GENERATION_FILES:
+        shutil.copyfile(directory / name, destination / name)
+    origin = {"directory": str(directory), "run_sha256": source["run_sha256"],
+              "code": source["code"], "generation": cell}
+    if "generation_source.json" in cell["files"]:
+        origin["parent"] = json.loads((directory / "generation_source.json").read_text())
+    write_json(destination / "generation_source.json", origin)
+    mark_files(destination, "generation.json", [*GENERATION_FILES, "generation_source.json"])
+    print(f"[checkpoint-sweep] reused verified generation for {key}; evaluation will run afresh", flush=True)
+
 
 def choose_snapshots(run_dir: Path, *, epochs: list[int] | None, max_snapshots: int) -> list[Path]:
     """Select exact requested epochs, or evenly spaced saved epochs (numeric order)."""
@@ -131,6 +190,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--list", action="store_true", help="List planned cells without loading models or writing files")
     parser.add_argument("--generate-only", action="store_true", help="Generate pools now; rerun without this flag to evaluate")
+    parser.add_argument("--reuse-generated-from", type=Path,
+                        help="Explicitly import verified generated datasets into a NEW --out after an evaluation-only fix; never reuse metrics")
     args = parser.parse_args(argv)
     if args.library_size < 1 or args.raw_count < args.library_size:
         parser.error("require raw-count >= library-size > 0")
@@ -163,6 +224,10 @@ def main(argv: list[str] | None = None) -> None:
         "raw_count": args.raw_count, "temperature": args.temperature, "top_p": args.top_p,
         "repetition_penalty": args.repetition_penalty, "device": args.device, "esm_model": args.esm_model,
     }
+    if args.reuse_generated_from:
+        if args.reuse_generated_from.resolve() == args.out.resolve():
+            raise ValueError("Generation recovery requires a different --out; keep the source unchanged")
+        recipe["reuse_generation"] = generation_source(args.reuse_generated_from, recipe)
     prepare_run(args.out, recipe)
     rows = []
     for case in cases:
@@ -170,9 +235,14 @@ def main(argv: list[str] | None = None) -> None:
             directory = args.out / case["name"] / f"seed{seed}"
             directory.mkdir(parents=True, exist_ok=True)
             if not verify_files(directory, "generation.json"):
-                print(f"[checkpoint-sweep] generating {directory}", flush=True)
-                with (directory / "generation.log").open("w") as log, contextlib.redirect_stdout(log):
-                    generate_case(case, directory, reference, args, seed)
+                source = recipe.get("reuse_generation")
+                key = f"{case['name']}/seed{seed}"
+                if source and key in source["cells"]:
+                    copy_generation(source, key, directory)
+                else:
+                    print(f"[checkpoint-sweep] generating {directory}", flush=True)
+                    with (directory / "generation.log").open("w") as log, contextlib.redirect_stdout(log):
+                        generate_case(case, directory, reference, args, seed)
             row = {"case": case["name"], "seed": seed, "library_sha256": sha256(directory / "library.fasta")}
             row.update(json.loads((directory / "generation_stats.json").read_text()))
             if not args.generate_only:

@@ -8,8 +8,8 @@ from collections import Counter
 
 import numpy as np
 import pytest
-from experiment_utils import mark_files, prepare_run, verify_files
-from sweep_checkpoints import choose_snapshots
+from experiment_utils import mark_files, prepare_run, verify_files, write_json
+from sweep_checkpoints import choose_snapshots, copy_generation, generation_source
 from sweep_library_selection import main as selection_main
 from sweep_library_selection import panel_artifacts, read_scores
 
@@ -203,7 +203,7 @@ def test_sft_rejects_reusing_legacy_checkpoints_without_touching_them(tmp_path, 
     assert not (out / "training_manifest.json").exists()
 
 
-def test_checkpoint_sweep_exports_and_generates_without_a_fallback(tmp_path):
+def test_checkpoint_sweep_exports_and_generates_without_a_fallback(tmp_path, monkeypatch):
     torch = pytest.importorskip("torch")
     from sweep_checkpoints import main as checkpoint_main
 
@@ -235,8 +235,38 @@ def test_checkpoint_sweep_exports_and_generates_without_a_fallback(tmp_path):
     assert len(list(iter_fasta(archive))) == 20
     checkpoint_main(args)  # Complete stages resume from verified output hashes.
 
+    import sweep_checkpoints as sweep
 
-def test_strict_metric_builder_rejects_partial_protocol(monkeypatch):
+    # Recovery after a code update must not regenerate completed datasets.
+    old_manifest = (out / "run.json").read_bytes()
+    current_code = json.loads(old_manifest)["code"]
+    monkeypatch.setattr(sweep, "code_identity", lambda: {**current_code, "commit": "evaluation-fix"})
+
+    def unexpected_generation(*_args):
+        pytest.fail("Recovery regenerated a completed library")
+
+    monkeypatch.setattr(sweep, "generate_case", unexpected_generation)
+    evaluated = []
+
+    def fresh_evaluation(directory, **_kwargs):
+        evaluated.append(directory)
+        return {"FBD": 0.25}
+
+    monkeypatch.setattr(sweep, "evaluate_library", fresh_evaluation)
+    recovered = tmp_path / "recovered"
+    recovery_args = [str(recovered) if arg == str(out) else arg for arg in args if arg != "--generate-only"]
+    recovery_args += ["--reuse-generated-from", str(out)]
+    checkpoint_main(recovery_args)
+    assert len(evaluated) == 2
+    assert (recovered / "inference/seed42/library.fasta").read_bytes() == anchor.read_bytes()
+    assert (out / "run.json").read_bytes() == old_manifest
+    checkpoint_main(recovery_args)
+    with pytest.raises(ValueError, match="different --out"):
+        checkpoint_main([*args, "--reuse-generated-from", str(out)])
+
+
+@pytest.mark.parametrize("has_optional", [False, True])
+def test_strict_metric_builder_rejects_partial_protocol(monkeypatch, has_optional):
     import sys
     from types import SimpleNamespace
 
@@ -248,12 +278,20 @@ def test_strict_metric_builder_rejects_partial_protocol(monkeypatch):
         name: (lambda name=name, **_kwargs: SimpleNamespace(name=name)) for name in names
     })
     models = SimpleNamespace(**{name: lambda: object() for name in [
-        "Charge", "Hydrophobicity", "HydrophobicMoment", "Amphiphilicity",
+        "Charge", "Hydrophobicity", "HydrophobicMoment",
     ]})
+    if has_optional:
+        models.Amphiphilicity = lambda: object()
     monkeypatch.setitem(sys.modules, "seqme", SimpleNamespace(metrics=metrics, models=models))
     built = build_metric_list(["KALGLALA"], object(), strict=True)
-    assert len(built) == 13
-    assert len({metric.name for _, metric in built}) == 13
+    assert len(built) == 12 + has_optional
+    assert len({metric.name for _, metric in built}) == 12 + has_optional
+
+    saved_fbd = metrics.FBD
+    del metrics.FBD
+    with pytest.raises(RuntimeError, match="missing.*FBD"):
+        build_metric_list(["KALGLALA"], object(), strict=True)
+    metrics.FBD = saved_fbd
 
     def unavailable():
         raise ImportError("missing descriptor dependency")
@@ -261,3 +299,64 @@ def test_strict_metric_builder_rejects_partial_protocol(monkeypatch):
     models.Hydrophobicity = unavailable
     with pytest.raises(RuntimeError, match="property predictors 2/3"):
         build_metric_list(["KALGLALA"], object(), strict=True)
+    del models.Hydrophobicity
+    with pytest.raises(RuntimeError, match="property predictors 2/3"):
+        build_metric_list(["KALGLALA"], object(), strict=True)
+
+
+def _old_generation(tmp_path):
+    source = tmp_path / "old"
+    recipe = {
+        "kind": "checkpoint_sweep_v1", "cases": [{"name": "hybrid"}, {"name": "inference"}],
+        "seeds": [42], "reference_sha256": "reference", "temperature": 1.0,
+        "artifacts": {"model.pt": "weights"},
+        "code": {"commit": "old", "source_sha256": "old-source", "python": "3.11",
+                 "packages": {"torch": "2.11.0"}},
+    }
+    write_json(source / "run.json", recipe)
+    cell = source / "hybrid/seed42"
+    cell.mkdir(parents=True)
+    (cell / "library.fasta").write_text(">one\nKALGLALA\n")
+    (cell / "pool.fasta").write_text(">one\nKALGLALA\n>two\nKLAGLALA\n")
+    write_json(cell / "generation_stats.json", {"library_size": 1, "pool_size": 2})
+    mark_files(cell, "generation.json", ["library.fasta", "pool.fasta", "generation_stats.json"])
+    (cell / "metrics.csv").write_text("old measurements must not be reused")
+    (cell / "evaluation.json").write_text("old evaluation marker")
+    recipe["code"]["commit"] = "fixed"
+    recipe["code"]["source_sha256"] = "fixed-source"
+    return source, recipe
+
+
+def test_generation_recovery_preserves_bytes_and_provenance_not_evaluations(tmp_path):
+    source, recipe = _old_generation(tmp_path)
+    recovery = generation_source(source, recipe)
+    assert set(recovery["cells"]) == {"hybrid/seed42"}  # Unfinished cells are not imported.
+    destination = tmp_path / "new/hybrid/seed42"
+    destination.mkdir(parents=True)
+    copy_generation(recovery, "hybrid/seed42", destination)
+    assert verify_files(destination, "generation.json")
+    for name in ("library.fasta", "pool.fasta", "generation_stats.json"):
+        assert (destination / name).read_bytes() == (source / "hybrid/seed42" / name).read_bytes()
+    origin = json.loads((destination / "generation_source.json").read_text())
+    assert origin["code"]["commit"] == "old"
+    assert not (destination / "metrics.csv").exists()
+    assert not (destination / "evaluation.json").exists()
+    assert (source / "hybrid/seed42/metrics.csv").read_text() == "old measurements must not be reused"
+
+
+@pytest.mark.parametrize("field", ["reference_sha256", "temperature", "artifacts", "runtime"])
+def test_generation_recovery_rejects_changed_inputs(tmp_path, field):
+    source, recipe = _old_generation(tmp_path)
+    if field == "runtime":
+        recipe["code"]["packages"]["torch"] = "different"
+    else:
+        recipe[field] = "different"
+    with pytest.raises(ValueError, match="differs|differ"):
+        generation_source(source, recipe)
+
+
+def test_generation_recovery_rejects_modified_artifacts(tmp_path):
+    source, recipe = _old_generation(tmp_path)
+    (source / "hybrid/seed42/library.fasta").write_text("changed")
+    with pytest.raises(ValueError, match="artifact changed"):
+        generation_source(source, recipe)

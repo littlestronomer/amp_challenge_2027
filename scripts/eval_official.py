@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--json-out", type=Path, default=None, help="Flat metrics for experiment summaries")
-    parser.add_argument("--strict", action="store_true", help="Fail if any requested metric is unavailable")
+    parser.add_argument("--strict", action="store_true", help="Require all 12 core metrics; amp+charge conformity is optional")
     args = parser.parse_args(argv)
 
     import seqme as sm
