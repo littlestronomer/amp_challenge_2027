@@ -384,3 +384,16 @@ scored 0.786 and now ships as `classifier.pt` (replacing the unshippable
 self-verifying resave script, which is what surfaced this issue). The panel
 head gets the same treatment; the top-100 is then re-ranked and re-verified
 under the upgraded deployed scorer.
+
+### Frozen-retrain deployment COMPLETE (2026-09-05)
+
+Panel head retrained frozen (`--unfreeze-layers 0`, best member 0.799/T=0.92)
+and deployed: **deployed-scorer AUROC 0.811** (≈ training AUROC — deployment
+≡ training by construction; per-genus 0.78–0.83). Under the upgraded
+instrument the re-ranked top-100 reads **breadth 0.997 / mdr 1.0 /
+mean_p 0.794** (pool breadth μ 0.278 — the scorer discriminates hard and the
+top-100 is its extreme tail). Library byte-identical through the swap.
+Binary head: frozen 0.786 deployed. Hemo head: frozen 0.846 (audit-only,
+weight 0). All shippable artifacts are now frozen-backbone head-only
+(<3 MB each). Quoted claims: deployed panel 0.81 (random-split; identity-
+clustered estimate for the fine-tuned reference was 0.808).

@@ -406,7 +406,7 @@ class HemoScorer:
     ) -> HemoScorer | None:
         ckpt_dir = Path(checkpoint_dir) if checkpoint_dir else REWARD_HEMO_DIR
         ckpt_path = ckpt_dir / "classifier.pt"
-        config_path = ckpt_dir / "config.json"
+        config_path = _resolve_config_path(ckpt_dir, "classifier")
         if not ckpt_path.exists() or not config_path.exists():
             return None
         try:
