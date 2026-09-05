@@ -367,3 +367,20 @@ is the hybrid** (650M: FBD 0.221, MMD 0.357, Recall 0.899, Precision 0.863,
 Conformity 0.507, Diversity 0.848). Remaining pre-submission work: ops
 closeout (head-only re-save, weight packaging, disclosure, verify dry-run,
 abstract).
+
+## DEPLOYED-scorer audit (2026-09-05) — panel head-only artifact was weak; retrain-frozen deployed
+
+**Finding:** the shipped `classifier_panel.pt` (head-only on the hub backbone,
+backbone fine-tuning discarded by the saving format) scores **macro AUROC
+0.644** on the promoted member's exact val split — far below the fine-tuned
+0.863/0.808. Every number the deployed scorer produced (top-100 potency,
+sweep top_* columns) came from this weaker instrument; all claims re-anchor
+to deployed numbers.
+
+**Fix (proven on the binary twin):** retraining with `--unfreeze-layers 0`
+(frozen backbone) makes deployment ≡ training — the frozen binary head
+scored 0.786 and now ships as `classifier.pt` (replacing the unshippable
+135MB legacy artifact; conversion refused + backup restored by the
+self-verifying resave script, which is what surfaced this issue). The panel
+head gets the same treatment; the top-100 is then re-ranked and re-verified
+under the upgraded deployed scorer.
