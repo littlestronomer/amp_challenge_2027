@@ -1,5 +1,8 @@
 # Generator experiments: checkpoint choice and library membership
 
+For the next experiment after checkpoint confirmation, see the
+[fixed-ratio epoch-58 blend runbook](RUNBOOK_BLEND_RATIOS.md).
+
 Run the experiments on `istke-compute-1`. Develop, test, commit and push code
 locally, then pull on the training machine. The commands below write to new
 experiment directories and do not promote or change the shipped submission.

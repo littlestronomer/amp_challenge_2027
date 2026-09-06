@@ -111,6 +111,8 @@ To submit, head to the Kaggle competition page: https://www.kaggle.com/competiti
 
 For controlled generator checkpoint and 50k-library selection experiments on
 the SSH training machine, see [the generator experiment runbook](docs/RUNBOOK_GENERATOR_EXPERIMENTS.md).
+For fixed-ratio epoch-58 + charge-conditioned blends using saved pools, see
+[the blend-ratio runbook](docs/RUNBOOK_BLEND_RATIOS.md).
 
 Verify your submission with:
 
