@@ -130,3 +130,6 @@ CUDA_VISIBLE_DEVICES=1 uv run --no-sync python -u scripts/sweep_blend_ratios.py 
 This reuses the existing epoch-58 pools for these seeds. Their conditioned pools
 are generated only if not already cached. No primary resampling or retraining.
 Confirmation uses generation seeds, not independent training replicates.
+
+After confirming a candidate, use the [paired top-100 runbook](RUNBOOK_TOP100_COMPARISON.md)
+to compare ranking and predicted hemolysis risk without changing library bytes.
