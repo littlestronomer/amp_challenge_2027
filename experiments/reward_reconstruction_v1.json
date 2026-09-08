@@ -1,0 +1,49 @@
+{
+  "kind": "reward_reconstruction_protocol_v1",
+  "historical_validation_verified": false,
+  "assumptions": [
+    "The current hash-pinned CSVs are candidate training inputs; original training-time hashes are unavailable.",
+    "Reconstruct the current trainer's random 80/20 split: class-stratified binary, shuffled panel. Original split mode and membership are unavailable.",
+    "Use the matched member's recorded seed, without searching other seeds or selecting the closest AUROC.",
+    "Use the backbone revision recorded by the completed top-100 comparison; the original training backbone revision is unverified.",
+    "Keep the deployed temperatures fixed. This is neither an independent test set nor a calibration refit."
+  ],
+  "tasks": {
+    "activity": {
+      "data": "data/processed/activity_labels.csv",
+      "data_sha256": "812bbd0bf3c00a49f50510d058a45be006363b6366529873e7375ecf7cdcef2d",
+      "training_run": "checkpoint/reward_binary_frozen",
+      "member": 2,
+      "seed": 44,
+      "task": "binary",
+      "temperature": 0.98,
+      "recorded_val_auroc": 0.786,
+      "head_sha256": "a4a1ed1184ad109bf0397b000d8f3fda1534feac360e9faef33fe3bc5c5e1d13",
+      "positive_label": "active"
+    },
+    "panel": {
+      "data": "data/processed/activity_labels_full.csv",
+      "data_sha256": "5ba1c77d27d79aee451350cdf6a5c1b2c4b3554350fa226bc4a75e161935a748",
+      "training_run": "checkpoint/reward_panel_frozen",
+      "member": 1,
+      "seed": 43,
+      "task": "panel",
+      "temperature": 0.92,
+      "recorded_val_auroc": 0.7995,
+      "head_sha256": "7ce07cb7963ea3f20aff23a294c10b487f9596aa7f93b372d501ce60a3a5d268",
+      "positive_label": "active for the labelled genus"
+    },
+    "hemolysis": {
+      "data": "data/processed/hemolysis_labels.csv",
+      "data_sha256": "fb654eddca32116a8fbdcff41803c8c2044bef10df3af68f6e5d7d784b312c7c",
+      "training_run": "checkpoint/reward_hemo_frozen",
+      "member": 0,
+      "seed": 42,
+      "task": "binary",
+      "temperature": 0.95,
+      "recorded_val_auroc": 0.846,
+      "head_sha256": "ec48d490001b54f90d0e2f077b9ff3fa274234b003fdade932648dda9ce0ba7b",
+      "positive_label": "active = risky under the candidate hemolysis label definition; not percent lysis"
+    }
+  }
+}

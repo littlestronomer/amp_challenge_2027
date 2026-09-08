@@ -117,6 +117,9 @@ For the paired top-100 audit after blend confirmation, see
 [the top-100 comparison runbook](docs/RUNBOOK_TOP100_COMPARISON.md).
 For cached-score diagnosis, fixed-normalization ablation and predictor artifact
 inventory, see [the selection diagnosis runbook](docs/RUNBOOK_SELECTION_DIAGNOSIS.md).
+After matching the frozen predictor members, see
+[the provisional reconstruction runbook](docs/RUNBOOK_REWARD_RECONSTRUCTION.md)
+for hash-pinned validation diagnostics with explicit historical-provenance limitations.
 
 Verify your submission with:
 

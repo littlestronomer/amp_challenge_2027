@@ -6,8 +6,11 @@ The combined experiment includes the diagnostic control replays. It does not
 change deployed ranking, generate peptides, load neural backbones, retrain
 classifiers, or run library FBD/MMD again.
 
-Full validation/calibration reproduction needs original training data and split
-evidence. Pool hemolysis scoring, safety-weight tuning, fresh-seed confirmation,
+Full historical validation/calibration reproduction needs original training
+data and split evidence. After exact member matching, an explicitly provisional
+[reconstruction check](RUNBOOK_REWARD_RECONSTRUCTION.md) is available for the
+user-provided current label hashes and recorded member seeds.
+Pool hemolysis scoring, safety-weight tuning, fresh-seed confirmation,
 and any promotion remain separate, gated follow-ups, not implemented switches.
 
 ## 1. Pull and verify the frozen six-cell cache
@@ -70,9 +73,11 @@ Multiple matches remain ambiguous; a matching rounded AUROC does not pick a
 winner, split, or training seed. Shared `config.json`/`members.json` may have
 been overwritten by another training task.
 
-The report explicitly lists the evidence needed before a bounded validation
-replay. It does not fit a temperature, invent a new holdout from training data,
-or interpret predicted risk as measured percent hemolysis.
+The report explicitly lists the evidence needed before a historical validation
+replay. The separate reconstruction tool retains unverified provenance rather
+than silently assuming today's data is original. The inventory does not fit a
+temperature, invent a new holdout from training data, or interpret predicted
+risk as measured percent hemolysis.
 
 ## 3. Run the controlled normalization ablation (CPU)
 

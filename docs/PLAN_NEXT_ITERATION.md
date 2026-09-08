@@ -2,14 +2,22 @@
 
 Planning date: 2026-09-08. Baseline code: `9358eab97fe0d396805df4e50649698b3ba539ee`.
 
-Status: **first implementation delivered; remote measurements pending**.
+Status: **selection ablation completed on SSH; predictor reconstruction ready for SSH**.
 Phases 0/1A and the P0/P1 mechanics are implemented, together with a CPU
-artifact-identity inventory for Phase 1B. See
-[the executable SSH runbook](RUNBOOK_SELECTION_DIAGNOSIS.md). Original split/data
-validation, pool hemolysis inference, risk-weight tuning and prospective runs
-remain gated follow-ups. Nothing here promotes a checkpoint or replaces a
-classifier. The proposed names below describe the full plan; the runbook maps
+artifact-identity inventory for Phase 1B. The remote audit matched all three
+heads to frozen-training members. Original split/data manifests were not found;
+a separately labelled, hash-pinned reconstruction evaluator is now implemented.
+See [the selection runbook](RUNBOOK_SELECTION_DIAGNOSIS.md) and
+[the reconstruction runbook](RUNBOOK_REWARD_RECONSTRUCTION.md). Historical
+validation remains unverified; pool hemolysis inference, risk-weight tuning
+and prospective runs remain gated follow-ups. Nothing here promotes a
+checkpoint or replaces a classifier. The proposed names below describe the full plan; the runbook maps
 the currently available outputs and commands.
+
+User-reported SSH update: P0 replay and the P1 anchor passed. Fixed normalization
+retained all 100 incumbent selections per seed and 99/98/100 candidate selections
+at seeds 42/43/44. It did not consistently improve candidate activity/panel scores
+and reduced mean candidate sequence distance. No promotion followed this ablation.
 
 ## 1. Objective and decision to produce
 
@@ -430,13 +438,14 @@ hemolysis and synthesizability evidence remain separate scientific workstreams.
 
 ## 10. Proposed implementation and testing work
 
-Implementation coverage for the first delivery:
+Implementation coverage to date:
 
 | Addition | Current responsibility / remaining gate |
 |---|---|
 | `src/amp_challenge_2027/selection_audit.py` | Pure cache-schema checks, score summaries, normalization fit/apply, paired comparisons |
 | `scripts/analyze_selection.py` | Verified cache import, inventory, baseline replay, normalization/saturation diagnostics |
 | `scripts/audit_reward_artifacts.py` | Implemented: explicit artifact inventory and tensor matches; split validation/calibration and pool scoring remain gated |
+| `scripts/eval_reward_reconstruction.py` | Implemented: explicit provisional random-split reconstruction with pinned current CSVs/heads, fixed-temperature metrics and similarity audit; never claims recovered historical validation |
 | `scripts/sweep_top100_selection.py` | Implemented: P0/P1 ablation and exact source-library preservation; risk-weight comparison remains gated |
 | Corresponding tests and an SSH runbook | Reproducibility, failure handling and ordered user-run commands |
 
