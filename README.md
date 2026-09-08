@@ -115,6 +115,8 @@ For fixed-ratio epoch-58 + charge-conditioned blends using saved pools, see
 [the blend-ratio runbook](docs/RUNBOOK_BLEND_RATIOS.md).
 For the paired top-100 audit after blend confirmation, see
 [the top-100 comparison runbook](docs/RUNBOOK_TOP100_COMPARISON.md).
+For cached-score diagnosis, fixed-normalization ablation and predictor artifact
+inventory, see [the selection diagnosis runbook](docs/RUNBOOK_SELECTION_DIAGNOSIS.md).
 
 Verify your submission with:
 
