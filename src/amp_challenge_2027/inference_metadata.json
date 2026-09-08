@@ -1,0 +1,5 @@
+{
+  "a4a1ed1184ad109bf0397b000d8f3fda1534feac360e9faef33fe3bc5c5e1d13": {"esm_model": "facebook/esm2_t12_35M_UR50D", "task": "binary", "checkpoint_format": "head-only", "unfreeze_layers": 0, "temperature": 0.98},
+  "7ce07cb7963ea3f20aff23a294c10b487f9596aa7f93b372d501ce60a3a5d268": {"esm_model": "facebook/esm2_t12_35M_UR50D", "task": "panel", "checkpoint_format": "head-only", "unfreeze_layers": 0, "temperature": 0.92, "genera": ["A. baumannii", "E. cloacae", "E. coli", "K. pneumoniae", "P. aeruginosa", "S. enterica", "B. subtilis", "S. aureus", "E. faecalis", "E. faecium"]},
+  "ec48d490001b54f90d0e2f077b9ff3fa274234b003fdade932648dda9ce0ba7b": {"esm_model": "facebook/esm2_t12_35M_UR50D", "task": "binary", "checkpoint_format": "head-only", "unfreeze_layers": 0, "temperature": 0.95}
+}

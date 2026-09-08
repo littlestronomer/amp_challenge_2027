@@ -36,7 +36,6 @@ transformers) are deferred into methods.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from collections.abc import Callable
 from pathlib import Path
@@ -51,6 +50,7 @@ from amp_challenge_2027.config import (
     REWARD_DIR,
     REWARD_HEMO_DIR,
 )
+from amp_challenge_2027.inference_metadata import load_config
 from amp_challenge_2027.props import hydrophobic_moment, mean_hydrophobicity
 
 EMBED_CACHE_DIR = DATA_DIR / "cache"
@@ -203,7 +203,7 @@ class ActivityScorer:
         self._temperature = max(float(temperature), 1e-3)
 
     @classmethod
-    def load(cls, *, device: str = "cpu") -> ActivityScorer | None:
+    def load(cls, *, device: str = "cpu", revision: str | None = None) -> ActivityScorer | None:
         ckpt_path = REWARD_DIR / "classifier.pt"
         config_path = _resolve_config_path(REWARD_DIR, "classifier")
         if not ckpt_path.exists() or not config_path.exists():
@@ -212,11 +212,12 @@ class ActivityScorer:
             import torch
             from transformers import AutoModel, AutoTokenizer
 
-            config = json.loads(config_path.read_text())
+            config = load_config(REWARD_DIR, "classifier")
             esm_id = config["esm_model"]
             ActivityClassifier, _, _ = _build_activity_module()
-            tokenizer = AutoTokenizer.from_pretrained(esm_id)
-            esm = AutoModel.from_pretrained(esm_id)
+            pin = {"revision": revision} if revision else {}
+            tokenizer = AutoTokenizer.from_pretrained(esm_id, **pin)
+            esm = AutoModel.from_pretrained(esm_id, **pin)
             model = ActivityClassifier(esm.config.hidden_size)
             model.esm = esm
             sd = torch.load(ckpt_path, map_location=device)
@@ -227,7 +228,7 @@ class ActivityScorer:
                 # Head-only checkpoint (train_reward_classifier >= v2): backbone
                 # comes from the hub above; verify nothing unexpected is present.
                 missing, unexpected = model.load_state_dict(sd, strict=False)
-                if unexpected:
+                if unexpected or any(not k.startswith("esm.") for k in missing):
                     raise RuntimeError(f"unexpected head keys: {sorted(unexpected)[:4]}")
             model.to(device).eval()
             return cls(model, tokenizer, device, temperature=config.get("temperature", 1.0))
@@ -300,7 +301,8 @@ class PanelScorer:
 
     @classmethod
     def load(
-        cls, *, device: str = "cpu", checkpoint_dir: Path | str | None = None
+        cls, *, device: str = "cpu", checkpoint_dir: Path | str | None = None,
+        revision: str | None = None,
     ) -> PanelScorer | None:
         ckpt_dir = Path(checkpoint_dir) if checkpoint_dir else REWARD_DIR
         ckpt_path = ckpt_dir / "classifier_panel.pt"
@@ -311,18 +313,19 @@ class PanelScorer:
             import torch
             from transformers import AutoModel, AutoTokenizer
 
-            config = json.loads(config_path.read_text())
+            config = load_config(ckpt_dir, "classifier_panel")
             if config.get("task") != "panel":
                 raise RuntimeError("config task != 'panel'")
             genera = list(config["genera"])
             PanelClassifier, _, _ = _build_activity_module(num_outputs=len(genera))
-            tokenizer = AutoTokenizer.from_pretrained(config["esm_model"])
-            esm = AutoModel.from_pretrained(config["esm_model"])
+            pin = {"revision": revision} if revision else {}
+            tokenizer = AutoTokenizer.from_pretrained(config["esm_model"], **pin)
+            esm = AutoModel.from_pretrained(config["esm_model"], **pin)
             model = PanelClassifier(esm.config.hidden_size, len(genera))
             model.esm = esm
             sd = torch.load(ckpt_path, map_location=device)
             missing, unexpected = model.load_state_dict(sd, strict=False)
-            if unexpected:
+            if unexpected or any(not k.startswith("esm.") for k in missing):
                 raise RuntimeError(f"unexpected head keys: {sorted(unexpected)[:4]}")
             model.to(device).eval()
             mdr = frozenset(MDR_PANEL_GENERA) & set(genera)
@@ -402,7 +405,8 @@ class HemoScorer:
 
     @classmethod
     def load(
-        cls, *, device: str = "cpu", checkpoint_dir: Path | str | None = None
+        cls, *, device: str = "cpu", checkpoint_dir: Path | str | None = None,
+        revision: str | None = None,
     ) -> HemoScorer | None:
         ckpt_dir = Path(checkpoint_dir) if checkpoint_dir else REWARD_HEMO_DIR
         ckpt_path = ckpt_dir / "classifier.pt"
@@ -413,18 +417,19 @@ class HemoScorer:
             import torch
             from transformers import AutoModel, AutoTokenizer
 
-            config = json.loads(config_path.read_text())
+            config = load_config(ckpt_dir, "classifier")
             BinaryClassifier, _, _ = _build_activity_module(num_outputs=1)
-            tokenizer = AutoTokenizer.from_pretrained(config["esm_model"])
-            esm = AutoModel.from_pretrained(config["esm_model"])
+            pin = {"revision": revision} if revision else {}
+            tokenizer = AutoTokenizer.from_pretrained(config["esm_model"], **pin)
+            esm = AutoModel.from_pretrained(config["esm_model"], **pin)
             model = BinaryClassifier(esm.config.hidden_size, 1)
             model.esm = esm
             sd = torch.load(ckpt_path, map_location=device)
             if any(k.startswith("esm.") for k in sd):
                 model.load_state_dict(sd)
             else:
-                _, unexpected = model.load_state_dict(sd, strict=False)
-                if unexpected:
+                missing, unexpected = model.load_state_dict(sd, strict=False)
+                if unexpected or any(not k.startswith("esm.") for k in missing):
                     raise RuntimeError(f"unexpected head keys: {sorted(unexpected)[:4]}")
             model.to(device).eval()
             return cls(model, tokenizer, device, temperature=config.get("temperature", 1.0))
