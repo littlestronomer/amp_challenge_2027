@@ -1,0 +1,28 @@
+{
+  "kind": "reward_generalization_protocol_v1",
+  "similarity_threshold": 0.8,
+  "split_seed": 2027,
+  "fractions": [0.6, 0.15, 0.1, 0.15],
+  "training_seeds": [42, 43, 44],
+  "architectures": ["linear", "mlp"],
+  "epochs": 50,
+  "patience": 10,
+  "learning_rate": 0.0001,
+  "weight_decay": 0.01,
+  "head_batch_size": 128,
+  "bootstrap_replicates": 1000,
+  "tasks": {
+    "activity": {
+      "data": "data/processed/activity_labels.csv",
+      "sha256": "812bbd0bf3c00a49f50510d058a45be006363b6366529873e7375ecf7cdcef2d"
+    },
+    "panel": {
+      "data": "data/processed/activity_labels_full.csv",
+      "sha256": "5ba1c77d27d79aee451350cdf6a5c1b2c4b3554350fa226bc4a75e161935a748"
+    },
+    "hemolysis": {
+      "data": "data/processed/hemolysis_labels.csv",
+      "sha256": "fb654eddca32116a8fbdcff41803c8c2044bef10df3af68f6e5d7d784b312c7c"
+    }
+  }
+}

@@ -2,11 +2,16 @@
 
 Planning date: 2026-09-08. Baseline code: `9358eab97fe0d396805df4e50649698b3ba539ee`.
 
-Status: **selection ablation completed on SSH; predictor reconstruction ready for SSH**.
+Status: **selection ablation and predictor reconstruction completed on SSH;
+family-held-out predictor benchmark implemented for the next SSH run**.
 Phases 0/1A and the P0/P1 mechanics are implemented, together with a CPU
 artifact-identity inventory for Phase 1B. The remote audit matched all three
 heads to frozen-training members. Original split/data manifests were not found;
-a separately labelled, hash-pinned reconstruction evaluator is now implemented.
+a separately labelled, hash-pinned reconstruction reproduced all three recorded
+AUROCs to rounding precision. Exact/near sequence overlap limits those validation
+scores. A fresh, joint-family four-way benchmark now separates head training,
+epoch selection, calibration and final testing, with linear/MLP controls and
+three fixed seeds. See [the generalization runbook](RUNBOOK_REWARD_GENERALIZATION.md).
 See [the selection runbook](RUNBOOK_SELECTION_DIAGNOSIS.md) and
 [the reconstruction runbook](RUNBOOK_REWARD_RECONSTRUCTION.md). Historical
 validation remains unverified; pool hemolysis inference, risk-weight tuning

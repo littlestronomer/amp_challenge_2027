@@ -120,6 +120,9 @@ inventory, see [the selection diagnosis runbook](docs/RUNBOOK_SELECTION_DIAGNOSI
 After matching the frozen predictor members, see
 [the provisional reconstruction runbook](docs/RUNBOOK_REWARD_RECONSTRUCTION.md)
 for hash-pinned validation diagnostics with explicit historical-provenance limitations.
+For fresh predictor training with joint sequence-family train/validation/calibration/test
+splits, linear controls and a sealed final test, see
+[the generalization benchmark runbook](docs/RUNBOOK_REWARD_GENERALIZATION.md).
 
 Verify your submission with:
 
