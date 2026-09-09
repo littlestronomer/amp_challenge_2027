@@ -11,9 +11,12 @@ from selection_cache import separate_output
 
 ARMS = {"baseline_activity_control", "baseline_selection_equal_eval", "baseline_selection_matched_total", "grpo_selection"}
 METRICS = ("activity", "reward_risk", "evaluation_risk", "selected_mean_pairwise_distance", "unique_fraction", "selected_mean_length")
+RAW_METRICS = ("raw_reward_yield_per_1000", "raw_evaluation_yield_per_1000", "raw_joint_yield_per_1000",
+               "raw_unique_novel_fraction", "raw_evaluation_risk_mean", "raw_evaluation_risk_p75",
+               "raw_prefix256_pairwise_distance", "raw_mean_length", "pool_activity_mean", "pool_risk_mean")
 
 
-def read_run(root):
+def read_run(root, improvement=False):
     marker = json.loads((root / "complete.json").read_text())
     if not {"run.json", "summary.csv", "status.json"} <= set(marker["files"]):
         raise ValueError("Incomplete pilot marker")
@@ -21,23 +24,30 @@ def read_run(root):
         raise ValueError("Invalid completion path")
     verify_files(root, "complete.json")
     run = json.loads((root / "run.json").read_text())
-    if run.get("kind") != "grpo_pilot_v2" or run.get("runtime", {}).get("warn_only") is not False or run["runtime"].get("attention") != "math_only":
+    kind = "generator_improvement_pilot_v1" if improvement else "grpo_pilot_v2"
+    if run.get("kind") != kind or run.get("runtime", {}).get("warn_only") is not False or run["runtime"].get("attention") != "math_only":
         raise ValueError("Require corrected deterministic v2 pilot; do not mix with v1")
+    optimized = "raft_selection" if improvement and run["args"]["method"] == "raft" else "grpo_selection"
+    expected_arms = (ARMS - {"grpo_selection"}) | {optimized}
     with (root / "summary.csv").open() as handle:
         data = list(csv.DictReader(handle))
-    if len(data) != 4 or {r["arm"] for r in data} != ARMS:
+    if len(data) != 4 or {r["arm"] for r in data} != expected_arms:
         raise ValueError("Missing/duplicate comparison arms")
     indexed = {r["arm"]: r for r in data}
     status = json.loads((root / "status.json").read_text())
-    if int(indexed["baseline_selection_matched_total"]["draws"]) != int(indexed["grpo_selection"]["draws"]) + status["training_draws"]:
+    if int(indexed["baseline_selection_matched_total"]["draws"]) != int(indexed[optimized]["draws"]) + status["training_draws"]:
         raise ValueError("Matched-total scoring budget differs")
     for row in data:
         row["seed"] = run["args"]["seed"]
-        for key in METRICS:
+        for key in METRICS + (RAW_METRICS if improvement else ()):
             row[key] = float(row[key]) if row[key] else None
             if row[key] is not None and not math.isfinite(row[key]):
                 raise ValueError("Nonfinite summary metric")
         row["kl_stopped"] = status["kl_stopped"]
+        if improvement:
+            row["teaching_shortfall"] = status.get("teaching_shortfall", False)
+            row["training_draws"] = status["training_draws"]
+            row["method"] = run["args"]["method"]
     signature = {"args": {k: v for k, v in run["args"].items() if k not in ("seed", "out", "list")},
                  "inputs": run["inputs"], "code": run["code"], "runtime": run["runtime"],
                  "configs": run["configs"], "revision": run["revision"], "evaluator_marker": run["evaluator_marker"],

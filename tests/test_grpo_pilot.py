@@ -56,7 +56,8 @@ def test_strict_runtime_overrides_warning_only_seed_helper():
     strict_runtime(42)
 
 
-def test_offline_end_to_end_budget_and_provenance(tmp_path, monkeypatch):
+@pytest.mark.parametrize("method", ["grpo", "grpo_raw", "raft", "raft_shortfall"])
+def test_offline_end_to_end_budget_and_provenance(tmp_path, monkeypatch, method):
     torch = pytest.importorskip("torch")
     import pilot_grpo as pilot
     from experiment_utils import mark_files, sha256, write_json
@@ -122,17 +123,31 @@ def test_offline_end_to_end_budget_and_provenance(tmp_path, monkeypatch):
             "--evaluator", str(evaluator), "--reference", str(tmp_path / "reference.fasta"),
             "--out", str(tmp_path / "out"), "--device", "cpu", "--steps", "1", "--groups", "1",
             "--group-size", "2", "--eval-draws", "4", "--top", "2"]
+    is_raft = method.startswith("raft")
+    is_raw = is_raft or method == "grpo_raw"
+    if method == "grpo_raw":
+        args += ["--raw-evaluation"]
+    if is_raft:
+        args += ["--method", "raft", "--raft-draws", "8", "--raft-retain", "4", "--raft-min-retain", "2",
+                 "--raft-replay", "4", "--raft-epochs", "1", "--risk-ceiling", ".01" if method == "raft_shortfall" else ".99"]
     pilot.main(args + ["--list"])
     assert not (tmp_path / "out").exists()
     pilot.main(args)
     status = json.loads((tmp_path / "out/status.json").read_text())
-    assert status["training_draws"] == 2
+    training_draws = 8 if is_raft else 2
+    assert status["training_draws"] == training_draws
+    if is_raft:
+        assert status["teaching_shortfall"] == (method == "raft_shortfall")
+        assert status["unscored_replay_draws"] == 4
     assert not status["deployment_approved"]
     import csv
     with (tmp_path / "out/summary.csv").open() as f:
         summary = {r["arm"]: r for r in csv.DictReader(f)}
-    assert int(summary["baseline_selection_matched_total"]["draws"]) == 6
-    assert int(summary["grpo_selection"]["draws"]) + status["training_draws"] == 6
+    arm = "raft_selection" if is_raft else "grpo_selection"
+    assert int(summary["baseline_selection_matched_total"]["draws"]) == 4 + training_draws
+    assert int(summary[arm]["draws"]) + status["training_draws"] == 4 + training_draws
+    if is_raw:
+        assert 0 <= float(summary[arm]["raw_joint_yield_per_1000"]) <= 1000
     assert (tmp_path / "out/complete.json").exists()
     with pytest.raises(ValueError, match="new output"):
         pilot.main(args)
@@ -147,8 +162,11 @@ def test_offline_end_to_end_budget_and_provenance(tmp_path, monkeypatch):
     second = torch.load(tmp_path / "repeat/policy/model.pt", weights_only=True)
     assert all(torch.equal(first[k], second[k]) for k in first)
     initial = torch.load(dirs["generator"] / "model.pt", weights_only=True)
-    assert any(not torch.equal(first[k], initial[k]) for k in first)
-    from summarize_grpo_pilot import main as summarize
+    assert any(not torch.equal(first[k], initial[k]) for k in first) == (method != "raft_shortfall")
+    if is_raw:
+        from summarize_generator_improvement import main as summarize
+    else:
+        from summarize_grpo_pilot import main as summarize
 
     run_paths = [str(tmp_path / "out")]
     for seed in (43, 44):
@@ -182,3 +200,22 @@ def test_offline_end_to_end_budget_and_provenance(tmp_path, monkeypatch):
     write_json(completion_path, completion)
     with pytest.raises(ValueError, match="identical"):
         summarize(["--runs", *run_paths, "--out", str(tmp_path / "mixed-settings")])
+    if method == "raft":
+        # Changing ONLY evaluation heads must alter reporting, never training.
+        for seed in (42, 43, 44):
+            cell = f"hemolysis/original/seed{seed}"
+            dest = evaluator / cell
+            state = torch.load(dest / "head.pt", weights_only=True)
+            state["classifier.bias"] = state["classifier.bias"] + 3.
+            torch.save(state, dest / "head.pt")
+            mark_files(dest, "complete.json", ["head.pt"])
+            inventory[cell] = sha256(dest / "complete.json")
+        write_json(evaluator / "model_inventory.json", inventory)
+        mark_files(evaluator, "complete.json", ["run.json", "model_inventory.json"])
+        changed_args = args.copy()
+        changed_args[changed_args.index("--out") + 1] = str(tmp_path / "changed-evaluator")
+        pilot.main(changed_args)
+        changed_weights = torch.load(tmp_path / "changed-evaluator/policy/model.pt", weights_only=True)
+        assert all(torch.equal(first[k], changed_weights[k]) for k in first)
+        assert (tmp_path / "changed-evaluator/training_samples.csv").read_bytes() == (tmp_path / "out/training_samples.csv").read_bytes()
+        assert (tmp_path / "changed-evaluator/summary.csv").read_bytes() != (tmp_path / "out/summary.csv").read_bytes()

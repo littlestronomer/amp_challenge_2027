@@ -88,12 +88,27 @@ def main(argv=None):
     parser.add_argument("--top", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-6)
     parser.add_argument("--kl-limit", type=float, default=.05)
+    parser.add_argument("--method", choices=("grpo", "raft"), default="grpo")
+    parser.add_argument("--raw-evaluation", action="store_true", help="Score all fresh draws with the evaluation-only ensemble")
+    parser.add_argument("--activity-floor", type=float, default=.6)
+    parser.add_argument("--risk-ceiling", type=float, default=.5)
+    parser.add_argument("--raft-draws", type=int, default=1024)
+    parser.add_argument("--raft-retain", type=int, default=128)
+    parser.add_argument("--raft-min-retain", type=int, default=8)
+    parser.add_argument("--raft-replay", type=int, default=256)
+    parser.add_argument("--raft-epochs", type=int, default=2)
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args(argv)
     if not (1 <= args.steps <= 100 and 1 <= args.groups <= 8 and 2 <= args.group_size <= 16 and
             args.eval_draws >= args.top > 0 and math.isfinite(args.lr) and 0 < args.lr <= 1e-5 and
             math.isfinite(args.kl_limit) and 0 < args.kl_limit <= .1):
         raise ValueError("Invalid or unbounded pilot parameters")
+    if not (0 < args.activity_floor < 1 and 0 < args.risk_ceiling < 1 and
+            1 <= args.raft_min_retain <= args.raft_retain <= args.raft_draws <= 8192 and
+            1 <= args.raft_replay <= 2048 and 1 <= args.raft_epochs <= 4):
+        raise ValueError("Invalid generator improvement parameters")
+    if args.method == "raft":
+        args.raw_evaluation = True
     separate_output(args.out, [args.checkpoint, args.parity.parent, args.evaluator, args.reference])
     if args.out.exists():
         raise ValueError("Use a new output directory; pilot does not resume partial training")
@@ -151,6 +166,18 @@ def main(argv=None):
                                 "No existing composite-selector reproduction; activity-only diagnostic control",
                                 "Selection baseline matches total reward-scored draws; not GPU training FLOPs",
                                 "Default one seed is exploratory; no deployment promotion"]}
+    if args.raw_evaluation:
+        manifest["kind"] = "generator_improvement_pilot_v1"
+        manifest["raw_yield_definition"] = "unique non-reference sequences passing fixed probability gates per ALL raw draws"
+        manifest["limitations"].extend(["Probability gates are exploratory, not validated biological thresholds",
+                                        "Diversity diagnostic uses first256 draws, not full family coverage"])
+    if args.method == "raft":
+        manifest["objective"] = "selected masked NLL + .25 initial-policy replay NLL + .05 sampled-prefix KL"
+        manifest["teaching_policy"] = "activity/risk gates; rank activity-risk; greedy .8 similarity exclusion; 1.5x raw length-bin caps"
+        manifest["update_epochs"] = args.raft_epochs
+        manifest["clip"] = None
+        manifest["limitations"].remove("Unconditional BOS groups; not prompt-conditioned task GRPO")
+        manifest["limitations"].append("Replay costs extra unscored initial-policy draws; no token-distribution teacher distillation")
     if args.list:
         print(json.dumps(manifest, indent=2))
         return
@@ -189,7 +216,12 @@ def main(argv=None):
     args.out.mkdir(parents=True)
     write_json(args.out / "run.json", manifest)
     history, training_rows, draw_count, stopped = [], [], 0, False
-    for step in range(args.steps):
+    extra_status = {}
+    if args.method == "raft":
+        from generator_improvement import train_raft
+
+        training_rows, draw_count, stopped, extra_status = train_raft(policy, frozen, score, reference, args)
+    for step in range(args.steps if args.method == "grpo" else 0):
         assert_strict_runtime()
         tokens, sequences = rollout(policy, args.groups * args.group_size, rng, args.device)
         activity, risk = score(sequences)
@@ -249,19 +281,43 @@ def main(argv=None):
         head.load_state_dict(torch.load(path, map_location=args.device, weights_only=True), strict=True)
         evaluators.append(head)
     summaries = []
+    optimized_arm = "raft_selection" if args.method == "raft" else "grpo_selection"
+    baseline_external = None
     for name, (seqs, a, h), safety in (("baseline_activity_control", tuple(x[:args.eval_draws] for x in baseline), False),
                                       ("baseline_selection_equal_eval", tuple(x[:args.eval_draws] for x in baseline), True),
-                                      ("baseline_selection_matched_total", baseline, True), ("grpo_selection", optimized, True)):
+                                      ("baseline_selection_matched_total", baseline, True), (optimized_arm, optimized, True)):
         ids = select(seqs, a, h, reference, args.top, safety)
         selected = [seqs[i] for i in ids]
         external = []
-        if selected:
+        raw = {}
+        pool_external = None
+        if args.raw_evaluation:
+            from generator_improvement import raw_metrics
+
+            # Score baseline once, then slice its prefix for equal-draw controls.
+            if name.startswith("baseline") and baseline_external is not None:
+                pool_external = baseline_external[:len(seqs)]
+            else:
+                target = baseline[0] if name.startswith("baseline") else seqs
+                values = []
+                for start in range(0, len(target), 64):
+                    features = torch.as_tensor(encoder.encode(target[start:start+64], 64), device=args.device)
+                    with torch.no_grad():
+                        logits = torch.stack([head(features) for head in evaluators]).mean(0).squeeze(-1)
+                        values.extend(torch.sigmoid(logits / temperature).cpu().tolist())
+                if name.startswith("baseline"):
+                    baseline_external = values
+                pool_external = values[:len(seqs)]
+            external = [pool_external[i] for i in ids]
+            raw = raw_metrics(seqs, a, h, pool_external, reference, args.activity_floor, args.risk_ceiling)
+        elif selected:
             features = torch.as_tensor(encoder.encode(selected, 64), device=args.device)
             with torch.no_grad():
                 logits = torch.stack([head(features) for head in evaluators]).mean(0).squeeze(-1)
                 external = torch.sigmoid(logits / temperature).cpu().tolist()
         table = [{"sequence": seqs[i], "activity": float(a[i]), "reward_risk": float(h[i]), "evaluation_risk": external[j]} for j, i in enumerate(ids)]
-        write_summary(args.out / f"{name}_pool.csv", [{"sequence": s, "activity": float(x), "risk": float(y)} for s, x, y in zip(seqs, a, h, strict=True)])
+        write_summary(args.out / f"{name}_pool.csv", [{"sequence": s, "activity": float(a[i]), "risk": float(h[i]),
+                      **({"evaluation_risk": pool_external[i]} if pool_external is not None else {})} for i, s in enumerate(seqs)])
         if table:
             write_summary(args.out / f"{name}_selected.csv", table)
         from Levenshtein import ratio
@@ -272,12 +328,12 @@ def main(argv=None):
                           "pool_activity_mean": float(a.mean()), "pool_risk_mean": float(h.mean()),
                           "selected_mean_length": float(np.mean([len(s) for s in selected])) if selected else None,
                           "selected_mean_pairwise_distance": float(np.mean(distances)) if distances else None,
-                          **{key: float(np.mean([r[key] for r in table])) if table else None for key in ("activity", "reward_risk", "evaluation_risk")}})
+                          **raw, **{key: float(np.mean([r[key] for r in table])) if table else None for key in ("activity", "reward_risk", "evaluation_risk")}})
     if any(sha256(Path(p)) != digest for p, digest in inputs.items()):
         raise ValueError("Pinned input changed during pilot")
     write_summary(args.out / "training_samples.csv", training_rows)
     write_summary(args.out / "summary.csv", summaries)
-    write_json(args.out / "status.json", {"training_draws": draw_count, "kl_stopped": stopped, "deployment_approved": False})
+    write_json(args.out / "status.json", {"training_draws": draw_count, "kl_stopped": stopped, "deployment_approved": False, **extra_status})
     mark_files(args.out, "complete.json", [str(p.relative_to(args.out)) for p in args.out.rglob("*") if p.is_file()])
     print(json.dumps(summaries, indent=2))
 
