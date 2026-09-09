@@ -41,7 +41,21 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--json-out", type=Path, default=None, help="Flat metrics for experiment summaries")
     parser.add_argument("--strict", action="store_true", help="Require all 12 core metrics; amp+charge conformity is optional")
+    parser.add_argument("--seed", type=int, default=None, help="Optional fixed RNG seed for matched component-metric comparisons")
     args = parser.parse_args(argv)
+
+    if args.seed is not None:
+        import random
+
+        import numpy as np
+        import torch
+
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
+        print(f"[eval] RNG seed: {args.seed}; not a cross-platform determinism guarantee")
 
     import seqme as sm
 

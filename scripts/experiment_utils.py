@@ -99,8 +99,19 @@ def mark_files(directory: Path, marker: str, names: list[str]) -> None:
     write_json(directory / marker, {"files": {name: sha256(directory / name) for name in names}})
 
 
-def evaluate_library(directory: Path, *, reference: Path, esm_model: str, device: str) -> dict:
+def evaluate_library(directory: Path, *, reference: Path, esm_model: str, device: str, seed: int | None = None) -> dict:
     """Use a subprocess so the 650M embedder is released between experiment cells."""
+    seeded_recipe = directory / "evaluation_recipe.json"
+    if seed is not None or seeded_recipe.exists():
+        recipe = {"library_sha256": sha256(directory / "library.fasta"), "reference_sha256": sha256(reference),
+                  "esm_model": esm_model, "device": device, "seed": seed}
+        if seeded_recipe.exists():
+            if json.loads(seeded_recipe.read_text()) != recipe:
+                raise ValueError("Evaluation recipe changed; use a new output directory")
+        elif (directory / "evaluation.json").exists():
+            raise ValueError("Existing evaluation has no RNG-seed provenance")
+        else:
+            write_json(seeded_recipe, recipe)
     if not verify_files(directory, "evaluation.json"):
         command = [
             sys.executable, str(REPO_ROOT / "scripts/eval_official.py"),
@@ -109,6 +120,8 @@ def evaluate_library(directory: Path, *, reference: Path, esm_model: str, device
             "--device", device, "--strict", "--out", str((directory / "metrics.csv").resolve()),
             "--json-out", str((directory / "metrics.json").resolve()),
         ]
+        if seed is not None:
+            command += ["--seed", str(seed)]
         print(f"[experiment] evaluating {directory} with {esm_model}", flush=True)
         log_path = directory / "evaluation.log"
         try:
@@ -120,7 +133,8 @@ def evaluate_library(directory: Path, *, reference: Path, esm_model: str, device
             with log_path.open() as log:
                 tail = "".join(deque(log, maxlen=40))
             raise RuntimeError(f"Evaluation failed; see {log_path}\n{tail}") from error
-        mark_files(directory, "evaluation.json", ["library.fasta", "metrics.csv", "metrics.json"])
+        mark_files(directory, "evaluation.json", ["library.fasta", "metrics.csv", "metrics.json"] +
+                   (["evaluation_recipe.json"] if seeded_recipe.exists() else []))
     return json.loads((directory / "metrics.json").read_text())
 
 
