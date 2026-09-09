@@ -1,5 +1,57 @@
 # Exploratory GRPO versus selection-only
 
+## Deterministic replication (v2)
+
+The v1 pilot's second RNG reset unintentionally restored warning-only
+determinism. Preserve its results, but do not pool them with v2. V2 reasserts
+strict algorithms after seed resets, disables TF32, and forces math-only SDPA
+for forward and backward passes. Runtime guards reject changes back to permissive
+settings. An unsupported deterministic operation fails rather than continuing
+with a warning. Math attention can be slower and use more GPU memory.
+
+Run the unchanged 20-step/1e-6 pilot for all three prespecified seeds in new
+directories. Do not increase optimization pressure based on the v1 result:
+
+```bash
+git pull --ff-only origin main
+
+uv run --no-sync python scripts/pilot_grpo.py \
+  --checkpoint checkpoint/generator \
+  --out sweep_results/grpo-pilot-seed42-v2 --list
+
+for seed in 42 43 44; do
+  CUDA_VISIBLE_DEVICES=1 uv run --no-sync python -u scripts/pilot_grpo.py \
+    --checkpoint checkpoint/generator \
+    --out "sweep_results/grpo-pilot-seed${seed}-v2" \
+    --seed "$seed" || break
+done
+```
+
+Stop on errors; never disable strict mode to continue. There is no guarantee of
+bitwise identity across different GPU models, PyTorch/CUDA versions or platforms.
+GPU details and deterministic settings are recorded in each actual run manifest.
+Local tests verify identical CPU synthetic outputs and model tensors on repeated
+same-seed execution; CUDA repeatability remains a remote check.
+
+After all three complete:
+
+```bash
+uv run --no-sync python scripts/summarize_grpo_pilot.py \
+  --runs sweep_results/grpo-pilot-seed42-v2 \
+         sweep_results/grpo-pilot-seed43-v2 \
+         sweep_results/grpo-pilot-seed44-v2 \
+  --out sweep_results/grpo-pilot-comparison-v2
+```
+
+This verifies completion hashes, seed membership, matching code/configs/artifacts
+and runtime, and matched-total draw budgets. It rejects v1 inputs. Outputs include
+per-seed results, paired GRPO-minus-baseline deltas, and descriptive mean/sample
+standard deviation. Three seeds do not establish statistical significance or
+biological safety. Selection shortfalls and KL stops remain visible in per_seed.csv;
+paired deltas are left unavailable when either selection is incomplete, and the
+number of available pairs is reported. The summary never silently discards a weak
+seed or promotes a policy.
+
 This pilot optimizes **predicted** activity/hemolysis, not experimentally verified
 safety. It does not change deployed weights or create a submission. The start is
 one exported generator, not the historical hybrid blend. Reward heads are the
@@ -13,11 +65,11 @@ git pull --ff-only origin main
 
 uv run --no-sync python scripts/pilot_grpo.py \
   --checkpoint checkpoint/generator \
-  --out sweep_results/grpo-pilot-seed42-v1 --list
+  --out sweep_results/grpo-pilot-seed42-v2 --list
 
 CUDA_VISIBLE_DEVICES=1 uv run --no-sync python -u scripts/pilot_grpo.py \
   --checkpoint checkpoint/generator \
-  --out sweep_results/grpo-pilot-seed42-v1 --seed 42
+  --out sweep_results/grpo-pilot-seed42-v2 --seed 42
 ```
 
 Defaults require `sweep_results/inference-probes-v1/report.json`, completed
@@ -81,7 +133,7 @@ biological validation. It does not supply an independent activity evaluator.
 ```bash
 uv run --no-sync python - <<'PY'
 import pandas as pd
-print(pd.read_csv('sweep_results/grpo-pilot-seed42-v1/summary.csv').to_string(index=False))
+print(pd.read_csv('sweep_results/grpo-pilot-seed42-v2/summary.csv').to_string(index=False))
 PY
 ```
 

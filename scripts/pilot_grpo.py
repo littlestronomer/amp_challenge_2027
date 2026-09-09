@@ -3,6 +3,7 @@ import argparse
 import copy
 import json
 import math
+import os
 from collections import Counter
 from pathlib import Path
 
@@ -14,6 +15,39 @@ from selection_cache import separate_output
 from amp_challenge_2027.config import REWARD_DIR, REWARD_HEMO_DIR
 from amp_challenge_2027.data import iter_fasta
 from amp_challenge_2027.inference_metadata import load_config
+
+
+def assert_strict_runtime():
+    import torch
+
+    if (not torch.are_deterministic_algorithms_enabled() or torch.is_deterministic_algorithms_warn_only_enabled()
+            or not torch.backends.cuda.math_sdp_enabled() or torch.backends.cuda.flash_sdp_enabled()
+            or torch.backends.cuda.mem_efficient_sdp_enabled() or torch.backends.cuda.cudnn_sdp_enabled()
+            or torch.backends.cuda.matmul.allow_tf32 or torch.backends.cudnn.allow_tf32):
+        raise RuntimeError("GRPO deterministic execution settings changed; refusing to continue")
+
+
+def strict_runtime(seed):
+    """Reassert strict settings AFTER every seed helper; avoid fused attention backward."""
+    import torch
+
+    from amp_challenge_2027.training import enable_determinism
+
+    enable_determinism(seed)
+    if os.environ.get("CUBLAS_WORKSPACE_CONFIG") not in (":4096:8", ":16:8"):
+        raise ValueError("Unsupported CUBLAS_WORKSPACE_CONFIG for deterministic CUDA")
+    torch.use_deterministic_algorithms(True, warn_only=False)
+    torch.set_float32_matmul_precision("highest")
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.enable_math_sdp(True)
+    torch.backends.cuda.enable_flash_sdp(False)
+    torch.backends.cuda.enable_mem_efficient_sdp(False)
+    torch.backends.cuda.enable_cudnn_sdp(False)
+    assert_strict_runtime()
+    return {"torch": str(torch.__version__), "cuda": torch.version.cuda,
+            "attention": "math_only", "deterministic_algorithms": True, "warn_only": False,
+            "tf32": False, "cublas_workspace_config": os.environ["CUBLAS_WORKSPACE_CONFIG"]}
 
 
 def rewards(sequences, activity, risk, reference, floor=.6):
@@ -104,11 +138,12 @@ def main(argv=None):
         raise ValueError("Invalid evaluator calibration")
     for p in evaluator_paths + [estate / "calibration.json"]:
         inputs[str(p.resolve())] = sha256(p)
-    manifest = {"kind": "grpo_pilot_v1", "args": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
+    manifest = {"kind": "grpo_pilot_v2", "args": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
                 "inputs": inputs, "configs": configs, "revision": revision, "evaluator_marker": evaluator_marker,
                 "code": code_identity(), "objective": "activity-risk-2*relu(.6-activity)-batch_duplicates-exact_reference",
                 "sampling": "temperature1 full masked categorical; residues8..50; forced EOS at50; default checkpoint conditioning",
                 "kl_beta": .05, "clip": .2, "update_epochs": 2,
+                "determinism_policy": "strict, math-only SDPA, TF32 disabled; same environment reproducibility only",
                 "limitations": ["Proxy optimization, not experimental hemolysis or safety",
                                 "Evaluator shares backbone/data lineage; not independent biological validation",
                                 "Unconditional BOS groups; not prompt-conditioned task GRPO",
@@ -124,10 +159,7 @@ def main(argv=None):
     from amp_challenge_2027.grpo import advantages, distributions, objective, rollout
     from amp_challenge_2027.model import load_model, save_model
     from amp_challenge_2027.reward_benchmark import FrozenEncoder, build_head
-    from amp_challenge_2027.training import enable_determinism
-
-    enable_determinism(args.seed)
-    torch.use_deterministic_algorithms(True)
+    strict_runtime(args.seed)
     encoder = FrozenEncoder(configs["activity"]["esm_model"], revision, device=args.device)
     heads = {}
     for name, root in (("activity", REWARD_DIR), ("hemolysis", REWARD_HEMO_DIR)):
@@ -145,7 +177,10 @@ def main(argv=None):
     policy = policy.to(args.device).float().eval()
     frozen = copy.deepcopy(policy).requires_grad_(False).eval()
     # FrozenEncoder initializes its own RNG; reset before policy optimization.
-    enable_determinism(args.seed)
+    manifest["runtime"] = strict_runtime(args.seed)
+    manifest["runtime"]["device"] = str(args.device)
+    if str(args.device).startswith("cuda"):
+        manifest["runtime"]["gpu"] = torch.cuda.get_device_name(torch.device(args.device))
     rng = torch.Generator(device=args.device).manual_seed(args.seed)
     optimizer = torch.optim.AdamW(policy.parameters(), lr=args.lr, weight_decay=0)
     reference = {seq for _, seq in iter_fasta(args.reference)}
@@ -155,6 +190,7 @@ def main(argv=None):
     write_json(args.out / "run.json", manifest)
     history, training_rows, draw_count, stopped = [], [], 0, False
     for step in range(args.steps):
+        assert_strict_runtime()
         tokens, sequences = rollout(policy, args.groups * args.group_size, rng, args.device)
         activity, risk = score(sequences)
         reward = rewards(sequences, activity, risk, reference)
@@ -164,6 +200,7 @@ def main(argv=None):
         with torch.no_grad():
             old, ref = distributions(policy, tokens).detach(), distributions(frozen, tokens).detach()
         for update in range(2):
+            assert_strict_runtime()
             current = distributions(policy, tokens)
             loss, kl = objective(current, old, ref, tokens, advantage)
             if not torch.isfinite(loss) or not torch.isfinite(kl):
@@ -194,6 +231,7 @@ def main(argv=None):
     save_model(policy, args.out / "policy", config=cfg)
 
     def pool(model, count, seed):
+        assert_strict_runtime()
         random = torch.Generator(device=args.device).manual_seed(seed)
         result = []
         while len(result) < count:

@@ -39,6 +39,23 @@ def test_policy_loss_and_sampler():
     assert torch.isfinite(lp.gather(-1, tokens[:, 1:, None]).squeeze(-1)[mask]).all()
 
 
+def test_strict_runtime_overrides_warning_only_seed_helper():
+    torch = pytest.importorskip("torch")
+    from pilot_grpo import assert_strict_runtime, strict_runtime
+
+    from amp_challenge_2027.training import enable_determinism
+
+    enable_determinism(42)
+    assert torch.is_deterministic_algorithms_warn_only_enabled()
+    runtime = strict_runtime(42)
+    assert runtime["warn_only"] is False
+    assert_strict_runtime()
+    enable_determinism(42)
+    with pytest.raises(RuntimeError, match="settings changed"):
+        assert_strict_runtime()
+    strict_runtime(42)
+
+
 def test_offline_end_to_end_budget_and_provenance(tmp_path, monkeypatch):
     torch = pytest.importorskip("torch")
     import pilot_grpo as pilot
@@ -58,6 +75,8 @@ def test_offline_end_to_end_budget_and_provenance(tmp_path, monkeypatch):
         head = build_head(480, 1, "mlp")
         for p in head.parameters():
             p.data.zero_()
+        head.dense.weight.data[0, 0] = 1.
+        head.classifier.weight.data[0, 0] = .1
         head.classifier.bias.data.fill_(2 if name == "activity" else 0)
         torch.save(head.state_dict(), dirs[name] / "classifier.pt")
         write_json(dirs[name] / "classifier_config.json", cfg)
@@ -90,7 +109,9 @@ def test_offline_end_to_end_budget_and_provenance(tmp_path, monkeypatch):
             pass
 
         def encode(self, sequences, batch_size):
-            return np.zeros((len(sequences), 480), dtype=np.float32)
+            result = np.zeros((len(sequences), 480), dtype=np.float32)
+            result[:, 0] = [sum(map(ord, s)) / 1000. for s in sequences]
+            return result
 
     monkeypatch.setattr(benchmark, "FrozenEncoder", Encoder)
     # Keep output separate from all input parents, including parity parent.
@@ -115,3 +136,49 @@ def test_offline_end_to_end_budget_and_provenance(tmp_path, monkeypatch):
     assert (tmp_path / "out/complete.json").exists()
     with pytest.raises(ValueError, match="new output"):
         pilot.main(args)
+    # An independent same-seed execution must produce identical scored pools
+    # and policy tensors, not merely the same deterministic-settings flags.
+    repeat_args = args.copy()
+    repeat_args[repeat_args.index("--out") + 1] = str(tmp_path / "repeat")
+    pilot.main(repeat_args)
+    assert (tmp_path / "repeat/summary.csv").read_bytes() == (tmp_path / "out/summary.csv").read_bytes()
+    assert (tmp_path / "repeat/training_samples.csv").read_bytes() == (tmp_path / "out/training_samples.csv").read_bytes()
+    first = torch.load(tmp_path / "out/policy/model.pt", weights_only=True)
+    second = torch.load(tmp_path / "repeat/policy/model.pt", weights_only=True)
+    assert all(torch.equal(first[k], second[k]) for k in first)
+    initial = torch.load(dirs["generator"] / "model.pt", weights_only=True)
+    assert any(not torch.equal(first[k], initial[k]) for k in first)
+    from summarize_grpo_pilot import main as summarize
+
+    run_paths = [str(tmp_path / "out")]
+    for seed in (43, 44):
+        seed_args = args.copy()
+        seed_args[seed_args.index("--out") + 1] = str(tmp_path / f"seed{seed}")
+        pilot.main(seed_args + ["--seed", str(seed)])
+        run_paths.append(str(tmp_path / f"seed{seed}"))
+    summarize(["--runs", *run_paths, "--out", str(tmp_path / "comparison")])
+    assert (tmp_path / "comparison/paired_summary.csv").exists()
+    # A repeated seed is not a replication set.
+    with pytest.raises(ValueError, match="seeds42"):
+        summarize(["--runs", run_paths[0], run_paths[0], run_paths[2], "--out", str(tmp_path / "bad")])
+    # Even a correctly hashed old pilot cannot be mixed into deterministic v2.
+    from summarize_grpo_pilot import read_run
+    manifest_path = tmp_path / "repeat/run.json"
+    old_run = json.loads(manifest_path.read_text())
+    old_run["kind"] = "grpo_pilot_v1"
+    write_json(manifest_path, old_run)
+    completion = json.loads((tmp_path / "repeat/complete.json").read_text())
+    completion["files"]["run.json"] = sha256(manifest_path)
+    write_json(tmp_path / "repeat/complete.json", completion)
+    with pytest.raises(ValueError, match="v2"):
+        read_run(tmp_path / "repeat")
+    changed_path = tmp_path / "seed44/run.json"
+    changed_run = json.loads(changed_path.read_text())
+    changed_run["args"]["lr"] *= 2
+    write_json(changed_path, changed_run)
+    completion_path = tmp_path / "seed44/complete.json"
+    completion = json.loads(completion_path.read_text())
+    completion["files"]["run.json"] = sha256(changed_path)
+    write_json(completion_path, completion)
+    with pytest.raises(ValueError, match="identical"):
+        summarize(["--runs", *run_paths, "--out", str(tmp_path / "mixed-settings")])
