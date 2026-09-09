@@ -45,11 +45,25 @@ def test_common_population_intersects_output_masks_not_only_sequences():
     assert len(transitions) == 1 and transitions[0]["output"] == "a"
 
 
+def test_json_integer_and_csv_string_family_ids_match_without_mutation():
+    old = [{"sequence": "x", "family": 7, "split": "train", "targets": [1], "mask": [1]}]
+    new = [dict(old[0], family="7")]
+    arms, _ = ab.make_arms(old, new, ["risky"])
+    assert all(r["family"] == "7" for data in arms.values() for r in data["records"])
+    assert old[0]["family"] == 7
+    for changed in (dict(new[0], family="8"), dict(new[0], split="validation")):
+        with pytest.raises(ValueError, match="Partition differs for x"):
+            ab.make_arms(old, [changed], ["risky"])
+
+
 def fixture(tmp_path, monkeypatch, single_class=False):
     original, candidates, prepared = [tmp_path / s for s in ("original", "candidates", "prepared")]
     original.mkdir()
     candidates.mkdir()
     recs = records()
+    # Match production serialization: numeric JSON families become strings in CSV.
+    for i, rec in enumerate(recs):
+        rec["family"] = i
     write_summary(original / "families.csv", [{k: r[k] for k in ("sequence", "family", "split")} for r in recs])
     mark_files(original, "complete.json", ["families.csv"])
     family_marker = ab.checked_stage(original, "complete.json", {"families.csv"})

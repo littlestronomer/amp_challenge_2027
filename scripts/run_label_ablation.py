@@ -29,6 +29,17 @@ PREP_FILES = {"manifest.json", "dataset.json", "support.csv", "transitions.csv",
 HEAD_FILES = {"head.pt", "history.csv", "validation.npy", "calibration.npy"}
 
 
+def normalized_records(records):
+    """JSON family IDs are integers; CSV IDs are strings. Preserve identity."""
+    result = copy.deepcopy(records)
+    for rec in result:
+        family = rec["family"]
+        if isinstance(family, bool) or not isinstance(family, (str, int)) or str(family) == "":
+            raise ValueError(f"Invalid family identifier: {family!r}")
+        rec["family"] = str(family)
+    return result
+
+
 def candidate_records(candidate_rows, outputs, family_map, task):
     records = {}
     for row in candidate_rows:
@@ -53,14 +64,17 @@ def candidate_records(candidate_rows, outputs, family_map, task):
 
 
 def make_arms(old_records, candidate, outputs):
-    old = {r["sequence"]: r for r in old_records if r["split"] in DEV}
+    old = {r["sequence"]: r for r in normalized_records(old_records) if r["split"] in DEV}
+    candidate = normalized_records(candidate)
     common_old, common_new, transitions = [], [], []
     for rec in candidate:
         previous = old.get(rec["sequence"])
         if previous is None:
             continue
         if (previous["split"], previous["family"]) != (rec["split"], rec["family"]):
-            raise ValueError("Partition differs across sources")
+            raise ValueError(f"Partition differs for {rec['sequence']}: "
+                             f"original=({previous['split']}, {previous['family']!r}), "
+                             f"candidate=({rec['split']}, {rec['family']!r})")
         mask = [int(a and b) for a, b in zip(previous["mask"], rec["mask"], strict=True)]
         if not any(mask):
             continue
