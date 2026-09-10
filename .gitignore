@@ -54,6 +54,7 @@ sweep_*.log
 
 # Validator clone target (verify_submission default) — NEVER commit a nested repo
 submission/
+external_baselines/
 
 # Notebooks
 .ipynb_checkpoints/
