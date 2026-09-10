@@ -10,6 +10,31 @@ from scale_validation import checked, sources
 from selection_cache import separate_output
 
 
+def configuration_compatibility(baseline_path, teacher_path):
+    """Compare exactly the defaults/known fields used by load_model, not raw JSON.
+
+    Old exported generators omit fields introduced later. Loading and saving a
+    GRPO teacher materializes those defaults without changing the architecture.
+    """
+    from amp_challenge_2027.model import DecoderConfig
+
+    raw = [json.loads(Path(p).read_text()) for p in (baseline_path, teacher_path)]
+    if any(not isinstance(config, dict) for config in raw):
+        raise ValueError("Generator configurations must be JSON objects")
+    baseline, teacher = [DecoderConfig.from_dict(config).to_dict() for config in raw]
+    differences = {k: {"baseline": baseline[k], "teacher": teacher[k]}
+                   for k in baseline if baseline[k] != teacher[k]}
+    if differences:
+        raise ValueError("Teacher and baseline effective generator configurations differ: "
+                         + json.dumps(differences, sort_keys=True))
+    missing = {"missing": True}
+    raw_differences = {k: {"baseline": raw[0].get(k, missing), "teacher": raw[1].get(k, missing)}
+                       for k in sorted(raw[0].keys() | raw[1].keys())
+                       if raw[0].get(k, missing) != raw[1].get(k, missing)}
+    return {"effective_config": baseline, "raw_differences": raw_differences,
+            "normalization": "DecoderConfig.from_dict defaults and known fields, identical to load_model"}
+
+
 def optimize(student, teacher, baseline, args, encoder=None):
     import numpy as np
     import torch
@@ -134,10 +159,10 @@ def main(argv=None):
                     [Path(c["root"]) for c in pinned["cells"].values() if "root" in c])
     if args.out.exists():
         raise ValueError("Use a new output directory; OPD does not resume partial training")
-    if json.loads((checkpoint / "config.json").read_text()) != json.loads((Path(teacher["checkpoint"]) / "config.json").read_text()):
-        raise ValueError("Teacher and baseline generator configurations differ")
+    compatibility = configuration_compatibility(checkpoint / "config.json", Path(teacher["checkpoint"]) / "config.json")
     run = {"kind": "anchored_opd_v1", "args": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
            "sources": pinned, "code": code_identity(), "teacher_cell": f"grpo/seed{args.seed}",
+           "configuration_compatibility": compatibility,
            "objective": "forward KL specialist->student on detached student rollouts; optional forward KL baseline->student on baseline rollouts; optional leave-one-out moment coverage policy gradient",
            "sampling": "full categorical masked residues8..50; dropout off; one update per fresh batch",
            "coverage_protocol": {"encoder": "pinned35M", "rff_dimensions": 128, "descriptors": "length/50 and20 AA fractions",

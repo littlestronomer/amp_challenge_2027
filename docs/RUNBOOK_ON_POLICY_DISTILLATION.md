@@ -51,6 +51,14 @@ Keep all six completed `grpo-generator-seed{42,43,44}-v1` and
 parity artifacts, and evaluator files unchanged. The existing shared provenance
 validator checks all six, although RAFT is not an OPD teacher.
 
+Compatibility uses `DecoderConfig.from_dict`, the same parser as the model
+loader. Legacy omitted fields and explicitly saved defaults are equivalent;
+unknown metadata is ignored as it is by the loader. Raw differences and the
+effective configuration are recorded in `run.json`. Genuine effective field
+differences still stop preflight with a field-by-field diagnostic. Config files
+and their provenance hashes are never rewritten. This check imports PyTorch
+but does not load weights, initialize CUDA or create an output directory.
+
 First pull and perform a read-only preflight:
 
 ```bash

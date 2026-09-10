@@ -129,6 +129,7 @@ def test_kl_stop_rolls_back(tmp_path):
 
 
 def test_preflight_is_read_only_and_protects_sources(pilot_sources, capsys):
+    pytest.importorskip("torch")
     from train_opd import main
 
     out = pilot_sources / "opd-specialist-seed42-v1"
@@ -142,8 +143,58 @@ def test_preflight_is_read_only_and_protects_sources(pilot_sources, capsys):
         main([*args, "--lr", "nan"])
 
 
+def test_legacy_configuration_defaults_and_metadata(tmp_path):
+    pytest.importorskip("torch")
+    from train_opd import configuration_compatibility
+
+    from amp_challenge_2027.model import DecoderConfig
+
+    old = DecoderConfig(residual="block_attnres").to_dict()
+    for key in ("conditioning", "num_charge_bins", "charge_min"):
+        old.pop(key)
+    old["training_note"] = "ignored by model loader"
+    teacher = DecoderConfig.from_dict(old).to_dict()
+    baseline_path, teacher_path = tmp_path / "baseline.json", tmp_path / "teacher.json"
+    write_json(baseline_path, old)
+    write_json(teacher_path, teacher)
+    result = configuration_compatibility(baseline_path, teacher_path)
+    assert result["effective_config"] == teacher
+    assert set(result["raw_differences"]) == {"conditioning", "num_charge_bins", "charge_min", "training_note"}
+
+
+@pytest.mark.parametrize("field,value", [("hidden_size", 768), ("num_heads", 3), ("conditioning", "charge"),
+                                        ("eos_token_id", 3), ("residual", "attnres"), ("charge_min", -9)])
+def test_effective_configuration_mismatch_is_not_bypassed(tmp_path, field, value):
+    pytest.importorskip("torch")
+    from train_opd import configuration_compatibility
+
+    baseline, teacher = tmp_path / "baseline.json", tmp_path / "teacher.json"
+    write_json(baseline, {})
+    write_json(teacher, {field: value})
+    with pytest.raises(ValueError, match=field):
+        configuration_compatibility(baseline, teacher)
+
+
+def test_cli_accepts_resaved_legacy_teacher_without_writing(pilot_sources, capsys):
+    pytest.importorskip("torch")
+    from train_opd import main
+
+    from amp_challenge_2027.model import DecoderConfig
+
+    teacher = pilot_sources / "grpo-generator-seed42-v1"
+    write_json(teacher / "policy/config.json", DecoderConfig().to_dict())
+    proof = json.loads((teacher / "complete.json").read_text())
+    mark_files(teacher, "complete.json", list(proof["files"]))
+    out = pilot_sources / "opd-specialist-seed42-v1"
+    main(["--pilot-root", str(pilot_sources), "--out", str(out), "--variant", "specialist", "--list"])
+    manifest = json.loads(capsys.readouterr().out)
+    assert manifest["configuration_compatibility"]["effective_config"]["conditioning"] == "none"
+    assert not out.exists()
+
+
 def test_opd_source_inventory_rejects_changed_settings(pilot_sources, monkeypatch):
     pytest.importorskip("pandas")
+    pytest.importorskip("torch")
     import evaluate_opd
     from train_opd import main
 
