@@ -45,9 +45,31 @@ def test_hydramp_adapter_exact_draws_no_sorting_or_filtering(tmp_path, monkeypat
         read_text=lambda p: json.dumps({"vcs_info": {"commit_id": "6590d2f4c2963f25d30669052a4c4a857e0e7279"}})))
     sequences, runtime = worker.sample_hydramp(tmp_path, 3, 60042, 2)
     assert sequences == ["", "AAAAAAAA", ""]
-    assert [c["seed"] for c in calls] == [60042, 60043]
+    assert [c["seed"] for c in calls] == [worker.batch_seed(60042, 0), worker.batch_seed(60042, 1)]
     assert all(not c["filter_out"] and not c["properties"] and c["n_attempts"] == 1 for c in calls)
     assert runtime["device"] == "cpu"
+
+
+def test_batch_seed_schedules_are_disjoint_and_repeatable():
+    from external_raw_worker import batch_seed
+
+    schedules = [{batch_seed(seed, i) for i in range(6250)} for seed in (60042, 60043, 60044)]
+    assert len(set.union(*schedules)) == 18750
+    assert all(0 <= s < 2**32 for schedule in schedules for s in schedule)
+    assert batch_seed(60042, 255) == batch_seed(60042, 255)
+    for seed, index in [(-1, 0), (65536, 0), (42, -1), (42, 65536)]:
+        with pytest.raises(ValueError):
+            batch_seed(seed, index)
+
+
+def test_overlap_detects_old_shifted_batch_stream():
+    from benchmark_external import cross_seed_overlap
+
+    draws = [str(i) for i in range(96)]
+    row = cross_seed_overlap({42: draws[:64], 43: draws[32:]})[0]
+    assert row["shared_unique"] == 32
+    assert row["shift_one_batch_equal"]
+    assert row["same_position_count"] == 0
 
 
 def test_inventory_rejects_pointer_wrong_revision_and_dirty_source(tmp_path, monkeypatch):

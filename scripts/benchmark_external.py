@@ -237,11 +237,28 @@ def checked_origin(recipe, method, seed, root):
     return {"scored_marker": sha256(source / "scored/complete.json")}
 
 
+def cross_seed_overlap(samples):
+    """Exact sequence overlap is diagnostic, not proof of RNG dependence."""
+    from itertools import combinations
+
+    rows = []
+    for a, b in combinations(sorted(samples), 2):
+        x, y = samples[a], samples[b]
+        sx, sy = set(x), set(y)
+        shared = len(sx & sy)
+        rows.append({"seed_a": a, "seed_b": b, "shared_unique": shared,
+                     "unique_a": len(sx), "unique_b": len(sy),
+                     "jaccard": shared / len(sx | sy) if sx | sy else 0.,
+                     "same_position_count": sum(u == v for u, v in zip(x, y)),
+                     "shift_one_batch_equal": x[32:] == y[:-32] if len(x) > 32 and len(x) == len(y) else False})
+    return rows
+
+
 def report(root, recipe):
     import pandas as pd
 
     tables = {k: [] for k in ("growth", "frontier", "status", "official")}
-    runtimes, proofs, costs = {}, {}, []
+    runtimes, proofs, costs, samples = {}, {}, [], {}
     for method in (*METHODS, *KITS):
         for seed in (42, 43, 44):
             dest = root / "audit" / method / f"seed{seed}"
@@ -252,6 +269,7 @@ def report(root, recipe):
             proofs[f"{method}/seed{seed}"] = sha256(dest / "complete.json")
             if method in KITS:
                 raw = json.loads((root / "raw" / method / f"seed{seed}/raw.json").read_text())
+                samples.setdefault(method, {})[seed] = raw["sequences"]
                 runtime = {k: raw[k] for k in ("runtime", "packages", "python")}
                 if runtime != runtimes.setdefault(method, runtime):
                     raise ValueError("External runtime/decoder weights differ across seeds")
@@ -278,6 +296,9 @@ def report(root, recipe):
     summary = df.groupby(["method", "draws"])[cols].agg(["mean", "std", "count"])
     summary.to_csv(output / "growth_summary.csv")
     write_summary(output / "generation_costs.csv", costs)
+    write_summary(output / "cross_seed_overlap.csv", [
+        {"method": method, **row} for method, cells in samples.items()
+        for row in cross_seed_overlap(cells)])
     paired = []
     for (seed, draws), group in df.groupby(["seed", "draws"]):
         index = group.set_index("method")

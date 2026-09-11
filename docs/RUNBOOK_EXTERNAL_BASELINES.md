@@ -1,5 +1,31 @@
 # External raw-generator benchmark
 
+## Seed-schedule correction (September 11, 2026)
+
+The original external worker used `run_seed + batch_index`. Consecutive run
+seeds therefore shared almost all batch seeds. Do not treat the v1 external
+pilot standard deviations as independent-run uncertainty. Preserve old outputs.
+
+The corrected schedule packs a 16-bit run seed and a 16-bit batch index into a
+uint32 seed. Schedules are disjoint for all supported draw budgets. Raw JSON
+records the schedule version, run seed, and complete batch-seed list. Repeatable
+sampling is still checked empirically; disjoint seeds alone do not establish
+biological generalization. Reports add `cross_seed_overlap.csv`, including exact
+set overlap and a shifted-one-batch diagnostic. Natural sequence overlap is not
+itself an error.
+
+After pulling this fix, repeat the two 32-draw smoke runs using NEW roots
+`external-smoke-v3` and `external-smoke-repeat-v3`, and compare their sequences
+with the script below adjusted to those roots. Then run sample, score, audit,
+and report using `external-pilot-v2`. Internal cached controls remain reusable.
+Do not mix code versions within a run.
+
+On RTX 5090, the tested runtime override is torch 2.7.1 from the cu128 index
+inside AMP-Diffusion's isolated environment. Do not run `uv sync` there after
+the override: it restores the incompatible upstream torch pin. Keep the upstream
+source and lock files unchanged; actual installed versions are recorded in raw
+results. HydrAMP and the main environment are unchanged.
+
 This experiment compares frozen generators under our local scoring and selection
 protocol. It does **not** reproduce native starter-kit submissions or the hidden
 competition aggregation score. No training, production promotion, or Kaggle

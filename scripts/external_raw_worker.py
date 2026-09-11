@@ -9,6 +9,13 @@ import time
 from pathlib import Path
 
 
+def batch_seed(seed, batch_index):
+    """Injective uint32 schedule: distinct runs never share batch seeds."""
+    if not 0 <= seed < 65536 or not 0 <= batch_index < 65536:
+        raise ValueError("Seed and batch index must fit unsigned 16 bits")
+    return (seed << 16) | batch_index
+
+
 def digest(path):
     result = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -36,7 +43,7 @@ def sample_diffusion(root, draws, seed, batch_size, device):
     sequences = []
     with torch.no_grad():
         for start in range(0, draws, batch_size):
-            set_seed(seed + start // batch_size)
+            set_seed(batch_seed(seed, start // batch_size))
             torch.use_deterministic_algorithms(True, warn_only=False)
             torch.backends.cuda.matmul.allow_tf32 = False
             torch.backends.cudnn.allow_tf32 = False
@@ -72,7 +79,7 @@ def sample_hydramp(root, draws, seed, batch_size):
     for start in range(0, draws, batch_size):
         count = min(batch_size, draws-start)
         batch = generator.unconstrained_generation(mode="amp", n_target=count,
-                    seed=seed + start // batch_size, filter_out=False, properties=False, n_attempts=1)
+                    seed=batch_seed(seed, start // batch_size), filter_out=False, properties=False, n_attempts=1)
         # properties=False preserves draw order, unlike the score-sorted properties=True path.
         if len(batch) != count or not all(isinstance(s, str) for s in batch):
             raise ValueError("HydrAMP violated the exact raw-draw contract")
@@ -104,6 +111,8 @@ def main():
         raise ValueError("Wrong raw-draw count")
     packages = sorted((d.metadata["Name"], d.version) for d in importlib.metadata.distributions())
     args.out.write_text(json.dumps({"sequences": sequences, "runtime": runtime, "packages": packages,
+                                  "seed_schedule": "uint16_run_uint16_batch_v1", "run_seed": args.seed,
+                                  "batch_seeds": [batch_seed(args.seed, i) for i in range((args.draws + args.batch_size - 1) // args.batch_size)],
                                   "python": platform.python_version(), "elapsed_seconds": time.monotonic()-started}))
 
 
