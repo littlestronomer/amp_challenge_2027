@@ -95,6 +95,11 @@ def generate_with_model(
     (requires ``reference_set``) so the output reproduces the reference charge
     histogram instead of the generator's narrow default — the fix for the
     under-produced charge tails.
+
+    Checkpoints conditioned on axes beyond charge (``conditioning`` like
+    ``"charge,hydro,hmoment"``) auto-detect regardless of this flag: bins are
+    drawn jointly from the reference joint distribution over the active axes
+    (requires ``reference_set``).
     """
 
     import torch
@@ -105,13 +110,31 @@ def generate_with_model(
     model.to(device)
     model.eval()
 
+    from amp_challenge_2027.conditioning import parse_conditioning_axes
+
+    axes = parse_conditioning_axes(getattr(config, "conditioning", "none"))
+
+    # Multi-axis conditioning (any axis beyond charge): per-sequence bins are
+    # drawn from the reference JOINT distribution over the active axes, so the
+    # output reproduces the reference's joint property histogram — the space
+    # the ConformityScore KDE measures. The charge axis, when active, comes
+    # from this joint draw rather than sample_charge_bins.
+    cond_bins: dict[str, list[int]] | None = None
+    if set(axes) - {"charge"}:
+        if not reference_set:
+            raise ValueError("multi-axis conditioned generation requires the reference set")
+        from amp_challenge_2027.conditioning import sample_condition_bins
+
+        draws = sample_condition_bins(n_sequences, sorted(reference_set), axes=axes, seed=seed)
+        cond_bins = {axis: [draw[axis] for draw in draws] for axis in axes}
+
     use_charge = (
         getattr(config, "conditioning", "none") == "charge"
         if charge_conditioned is None
         else charge_conditioned
     )
     charge: list[int] | None = None
-    if use_charge:
+    if use_charge and cond_bins is None:
         if getattr(config, "conditioning", "none") != "charge":
             raise ValueError(
                 "charge-conditioned generation requested but the checkpoint is unconditional "
@@ -136,6 +159,7 @@ def generate_with_model(
         top_p=top_p,
         repetition_penalty=repetition_penalty,
         charge=charge,
+        cond_bins=cond_bins,
     )
     return sequences
 

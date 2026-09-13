@@ -49,16 +49,22 @@ from amp_challenge_2027.config import (
 
 
 def load_generative_dataset(path: Path, *, conditioning: str = "none"):
-    """Load curated peptides; with ``conditioning="charge"`` also compute charge bins.
+    """Load curated peptides plus optional per-axis conditioning bins.
 
-    Returns ``list[str]`` for unconditional training, or ``(sequences,
-    charge_bins)`` for charge-conditioned training. The CSV's ``charge`` column
-    is deliberately ignored — bins are recomputed with the modlamp (Bjellqvist)
-    charge so training labels live in the same scale as the ConformityScore.
+    Returns ``list[str]`` for unconditional training, ``(sequences,
+    charge_bins)`` for charge-only conditioning (legacy format), or
+    ``(sequences, bins_by_axis)`` for multi-axis conditioning — a dict of
+    per-axis bin lists on the seqme/modlamp ConformityScore scale. The CSV's
+    ``charge`` column is deliberately ignored — bins are recomputed locally
+    so training labels live in the same scale as the ConformityScore.
     """
     import csv
 
-    from amp_challenge_2027.conditioning import charge_bin
+    from amp_challenge_2027.conditioning import (
+        axis_bin,
+        axis_num_bins,
+        parse_conditioning_axes,
+    )
 
     sequences: list[str] = []
     with open(path, newline="") as f:
@@ -70,17 +76,31 @@ def load_generative_dataset(path: Path, *, conditioning: str = "none"):
     if not sequences:
         print("[train] no data; aborting SFT", file=sys.stderr)
         sys.exit(1)
-    if conditioning != "charge":
+    axes = parse_conditioning_axes(conditioning)
+    if not axes:
         return sequences
-    charge_bins = [charge_bin(s) for s in sequences]
+    if axes == ("charge",):
+        from amp_challenge_2027.conditioning import charge_bin
+
+        charge_bins = [charge_bin(s) for s in sequences]
+        import numpy as np
+
+        hist = np.bincount(charge_bins, minlength=21)
+        print(
+            f"[train] charge bins: min={min(charge_bins)} max={max(charge_bins)} "
+            f"mode_bin={int(hist.argmax())} (histogram {hist.tolist()})"
+        )
+        return sequences, charge_bins
     import numpy as np
 
-    hist = np.bincount(charge_bins, minlength=21)
-    print(
-        f"[train] charge bins: min={min(charge_bins)} max={max(charge_bins)} "
-        f"mode_bin={int(hist.argmax())} (histogram {hist.tolist()})"
-    )
-    return sequences, charge_bins
+    bins_by_axis = {axis: [axis_bin(s, axis) for s in sequences] for axis in axes}
+    for axis, bins in bins_by_axis.items():
+        hist = np.bincount(bins, minlength=axis_num_bins(axis))
+        print(
+            f"[train] {axis} bins: min={min(bins)} max={max(bins)} "
+            f"mode_bin={int(hist.argmax())} (histogram {hist.tolist()})"
+        )
+    return sequences, bins_by_axis
 
 
 def _tokenizer_fn(seq: str) -> list[int]:
@@ -147,11 +167,20 @@ def train_sft(
     # --- Determinism (critical for the validator) -------------------------
     enable_determinism(seed)
 
-    if conditioning not in ("none", "charge"):
-        raise ValueError(f"unknown conditioning {conditioning!r}; expected 'none' or 'charge'")
+    from amp_challenge_2027.conditioning import parse_conditioning_axes
 
-    if conditioning == "charge":
+    try:
+        axes = parse_conditioning_axes(conditioning)
+    except ValueError as error:
+        raise ValueError(
+            f"unknown conditioning {conditioning!r}; expected 'none' or a comma-separated "
+            f"subset of charge,hydro,hmoment"
+        ) from error
+
+    if axes == ("charge",):
         sequences, charge_bins = load_generative_dataset(data_path, conditioning="charge")
+    elif axes:
+        sequences, bins_by_axis = load_generative_dataset(data_path, conditioning=conditioning)
     else:
         sequences = load_generative_dataset(data_path)
     cfg = DecoderConfig(
@@ -163,7 +192,7 @@ def train_sft(
         moe_num_experts=moe_num_experts,
         moe_num_active=moe_active,
         attnres_num_blocks=attnres_blocks,
-        conditioning=conditioning,
+        conditioning=",".join(axes) if axes else "none",
     )
     model, _ = build_model(cfg)
     model.to(device)
@@ -210,7 +239,7 @@ def train_sft(
     (out_dir / "config.json").write_text(json.dumps(cfg.to_dict(), indent=2) + "\n")
     print(f"[train] split seed {effective_split_seed}: {len(train_seqs)} train / {len(val_seqs)} val")
 
-    if conditioning == "charge":
+    if axes == ("charge",):
         train_bins = [charge_bins[i] for i in perm[:split]]
         val_bins = [charge_bins[i] for i in perm[split:]]
         train_loader = make_charge_dataloader(
@@ -226,6 +255,37 @@ def train_sft(
         )
         val_loader = (
             make_charge_dataloader(
+                val_seqs,
+                val_bins,
+                _tokenizer_fn,
+                batch_size=batch_size,
+                pad_id=tok.PAD_ID,
+                max_length=MAX_LENGTH + 2,
+                num_workers=num_workers,
+                shuffle=False,
+                seed=seed,
+            )
+            if val_seqs
+            else None
+        )
+    elif axes:
+        from amp_challenge_2027.training import make_conditioned_dataloader
+
+        train_bins = {axis: [bins_by_axis[axis][i] for i in perm[:split]] for axis in axes}
+        val_bins = {axis: [bins_by_axis[axis][i] for i in perm[split:]] for axis in axes}
+        train_loader = make_conditioned_dataloader(
+            train_seqs,
+            train_bins,
+            _tokenizer_fn,
+            batch_size=batch_size,
+            pad_id=tok.PAD_ID,
+            max_length=MAX_LENGTH + 2,
+            num_workers=num_workers,
+            shuffle=True,
+            seed=seed,
+        )
+        val_loader = (
+            make_conditioned_dataloader(
                 val_seqs,
                 val_bins,
                 _tokenizer_fn,
@@ -386,11 +446,17 @@ def train_sft(
             nb = 0
             n_micro = 0
             for batch_idx, batch in enumerate(train_loader):
-                if conditioning == "charge":
+                if axes == ("charge",):
                     input_ids, labels, charge = batch
                     input_ids = input_ids.to(device)
                     labels = labels.to(device)
                     charge = charge.to(device)
+                elif axes:
+                    input_ids, labels, bins = batch
+                    input_ids = input_ids.to(device)
+                    labels = labels.to(device)
+                    bins = {axis: tensor.to(device) for axis, tensor in bins.items()}
+                    charge = None
                 else:
                     input_ids, labels = batch
                     input_ids, labels = input_ids.to(device), labels.to(device)
@@ -400,7 +466,11 @@ def train_sft(
                 if n_micro % grad_accum == 0:
                     optimizer.zero_grad(set_to_none=True)
                 with autocast_ctx():
-                    out = model(input_ids, charge=charge)
+                    out = (
+                        model(input_ids, cond_bins=bins)
+                        if axes and axes != ("charge",)
+                        else model(input_ids, charge=charge)
+                    )
                     shift_logits = out.logits[:, :-1, :].contiguous()
                     shift_labels = labels[:, 1:].contiguous()
                     lm_loss = torch.nn.functional.cross_entropy(
@@ -625,17 +695,20 @@ def _evaluate(model, val_loader, device: str, autocast_ctx) -> float:
     model.eval()
     with torch.no_grad():
         for batch in val_loader:
-            if len(batch) == 3:  # charge-conditioned: (input_ids, labels, charge)
-                input_ids, labels, charge = batch
+            if len(batch) == 3:  # conditioned: (input_ids, labels, bins-or-charge)
+                input_ids, labels, extra = batch
                 input_ids = input_ids.to(device)
                 labels = labels.to(device)
-                charge = charge.to(device)
+                if isinstance(extra, dict):  # multi-axis conditioning
+                    cond_kwargs = {"cond_bins": {axis: t.to(device) for axis, t in extra.items()}}
+                else:  # legacy charge-only conditioning
+                    cond_kwargs = {"charge": extra.to(device)}
             else:
                 input_ids, labels = batch
                 input_ids, labels = input_ids.to(device), labels.to(device)
-                charge = None
+                cond_kwargs = {}
             with autocast_ctx():
-                out = model(input_ids, charge=charge)
+                out = model(input_ids, **cond_kwargs)
                 shift_logits = out.logits[:, :-1, :].contiguous()
                 shift_labels = labels[:, 1:].contiguous()
                 loss = torch.nn.functional.cross_entropy(
@@ -713,11 +786,13 @@ def main() -> None:
         "--conditioning",
         type=str,
         default="none",
-        choices=["none", "charge"],
         help=(
-            "Train a charge-conditioned generator: condition on the peptide's modlamp "
-            "net charge (21 bins, -8..+12). At generation time, sample bins from the "
-            "reference charge distribution to reproduce it (see generate --charge-conditioned)."
+            "Condition the generator on per-peptide property bins drawn from the "
+            "seqme ConformityScore predictor scale: 'none', a single axis ('charge': "
+            "21 bins, -8..+12) or a comma-separated subset of charge,hydro,hmoment "
+            "(multi-axis; bins are jointly distributed). At generation time bins are "
+            "drawn from the reference distribution to reproduce it "
+            "(see generate --charge-conditioned; multi-axis checkpoints auto-detect)."
         ),
     )
 

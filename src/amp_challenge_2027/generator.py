@@ -39,6 +39,7 @@ def sample_sequences(
     repetition_penalty: float = 1.2,
     min_length: int = 8,
     charge: list[int] | None = None,
+    cond_bins: dict[str, list[int]] | None = None,
 ) -> list[str]:
     """Sample ``n_sequences`` peptides from the model autoregressively.
 
@@ -54,6 +55,11 @@ def sample_sequences(
     a charge-conditioned model (``conditioning="charge"``). Each sequence is
     generated conditioned on its bin. ``None`` → unconditional (or the model's
     default bin if it was trained conditioned) — backward compatible.
+
+    ``cond_bins`` (optional): multi-axis conditioning, ``{axis: list[int]}``
+    with one bin per sequence per axis for models trained with
+    ``conditioning="charge,hydro,..."``. Takes precedence over ``charge``;
+    passing both raises.
 
     ``repetition_penalty`` (>1.0) penalizes residues that already appear in the
     partial sequence, breaking the degenerate "KKKKK" repeats AR models produce
@@ -71,6 +77,17 @@ def sample_sequences(
         raise ValueError(
             f"charge has {len(charge)} bins but n_sequences={n_sequences}; must align"
         )
+    if cond_bins is not None:
+        if charge is not None:
+            raise ValueError("pass either charge= or cond_bins=, not both")
+        if not cond_bins:
+            raise ValueError("cond_bins must contain at least one axis")
+        for axis, bins in cond_bins.items():
+            if len(bins) != n_sequences:
+                raise ValueError(
+                    f"cond_bins[{axis!r}] has {len(bins)} bins but n_sequences={n_sequences}; "
+                    "must align"
+                )
 
     sequences: list[str] = []
     remaining = n_sequences
@@ -94,6 +111,11 @@ def sample_sequences(
             repetition_penalty=repetition_penalty,
             min_length=min_length,
             charge=charge[offset : offset + bs] if charge is not None else None,
+            cond_bins=(
+                {axis: bins[offset : offset + bs] for axis, bins in cond_bins.items()}
+                if cond_bins is not None
+                else None
+            ),
         )
         for row in ids:
             sequences.append(tok.decode(row))
@@ -120,6 +142,7 @@ def _sample_batch(
     repetition_penalty: float = 1.2,
     min_length: int = 8,
     charge: list[int] | None = None,
+    cond_bins: dict[str, list[int]] | None = None,
 ) -> list[list[int]]:
     """Sample one batch. Returns raw token-id lists (specials not yet stripped)."""
     import torch
@@ -131,9 +154,17 @@ def _sample_batch(
     charge_t = (
         torch.as_tensor(charge, device=device, dtype=torch.long) if charge is not None else None
     )
+    cond_bins_t = (
+        {axis: torch.as_tensor(bins, device=device, dtype=torch.long) for axis, bins in cond_bins.items()}
+        if cond_bins is not None
+        else None
+    )
 
     for step in range(max_length):
-        out = model(cur, charge=charge_t)
+        if cond_bins_t is not None:
+            out = model(cur, cond_bins=cond_bins_t)
+        else:
+            out = model(cur, charge=charge_t)
         logits = out.logits[:, -1, :] / max(temperature, 1e-8) + mask_bias
 
         # Repetition penalty: for each sequence, find tokens already generated

@@ -36,6 +36,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from amp_challenge_2027.config import MAX_LENGTH
+from amp_challenge_2027.conditioning import (
+    HMOMENT_MODE_VALUE,
+    HYDRO_MODE_VALUE,
+    parse_conditioning_axes,
+)
 from amp_challenge_2027.tokenizer import VOCAB
 
 ResidualMode = Literal["standard", "attnres", "block_attnres"]
@@ -76,13 +81,23 @@ class DecoderConfig:
     bos_token_id: int = 1
     eos_token_id: int = 2
     tie_word_embeddings: bool = True
-    # Charge conditioning ("none" = unconditional, backward-compatible).
-    # Bin index = round(modbjellqvist_charge) - charge_min, clamped to
+    # Conditioning ("none" = unconditional, backward-compatible). Accepts a
+    # comma-separated subset of {charge, hydro, hmoment}; one bin-embedding
+    # table per axis is added to every position.
+    # Charge bin index = round(modbjellqvist_charge) - charge_min, clamped to
     # [0, num_charge_bins). Charge range −8..+12 covers the reference (mean
     # +2.85, σ 3.28; extremes beyond ±3σ clamp into the edge bins).
+    # Hydro/hmoment bins use the seqme/modlamp Eisenberg scale; the default
+    # edges are provisional and validated by scripts/parity_modlamp_descriptors.py.
     conditioning: str = "none"
     num_charge_bins: int = 21
     charge_min: int = -8
+    num_hydro_bins: int = 20
+    hydro_min: float = -1.5
+    hydro_step: float = 0.13
+    num_hmoment_bins: int = 14
+    hmoment_min: float = 0.0
+    hmoment_step: float = 0.08
 
     @property
     def inner_size(self) -> int:
@@ -104,8 +119,13 @@ class DecoderConfig:
             total -= nl * 2 * h * self.inner_size
             total += nl * self.moe_num_experts * 2 * h * self.inner_size
             total += nl * h * self.moe_num_experts  # gate
-        if self.conditioning == "charge":
-            total += self.num_charge_bins * h
+        for axis in parse_conditioning_axes(self.conditioning):
+            bins = {
+                "charge": self.num_charge_bins,
+                "hydro": self.num_hydro_bins,
+                "hmoment": self.num_hmoment_bins,
+            }[axis]
+            total += bins * h
         return int(total)
 
     @classmethod
@@ -347,6 +367,49 @@ class DecoderBlock(nn.Module):
 # ---------------------------------------------------------------------------
 
 
+def _normalize_cond_bins(
+    *,
+    charge: torch.Tensor | list[int] | None,
+    cond_bins: dict[str, torch.Tensor | list[int]] | None,
+    axes: tuple[str, ...],
+    batch: int,
+    device: torch.device,
+) -> dict[str, torch.Tensor]:
+    """Normalize conditioning-bin inputs to ``{axis: (B,) long tensor}``.
+
+    Accepts the legacy ``charge=`` keyword (translated to the "charge" axis)
+    or the multi-axis ``cond_bins`` dict — never both. Legacy semantics: a
+    ``charge=`` value on a model that was not charge-trained is ignored, as
+    the original forward always did. The new ``cond_bins`` API is strict:
+    bins for axes the model was NOT trained with fail closed rather than
+    being silently dropped; a scalar is broadcast to the batch.
+    """
+    if charge is not None and cond_bins is not None:
+        raise ValueError("pass either charge= or cond_bins=, not both")
+    source: dict[str, torch.Tensor | list[int]] = {}
+    if charge is not None:
+        if "charge" in axes:
+            source = {"charge": charge}
+    elif cond_bins is not None:
+        source = dict(cond_bins)
+        unknown = sorted(axis for axis in source if axis not in axes)
+        if unknown:
+            raise ValueError(
+                f"conditioning bins given for inactive axes {unknown}; model axes = {list(axes)}"
+            )
+    normalized: dict[str, torch.Tensor] = {}
+    for axis, value in source.items():
+        tensor = torch.as_tensor(value, device=device, dtype=torch.long)
+        if tensor.dim() == 0:
+            tensor = tensor.expand(batch)
+        if tensor.shape[0] != batch:
+            raise ValueError(
+                f"cond_bins[{axis!r}] has {tensor.shape[0]} entries but batch is {batch}"
+            )
+        normalized[axis] = tensor
+    return normalized
+
+
 class PeptideDecoder(nn.Module):
     """Custom autoregressive transformer for AMP generation.
 
@@ -378,20 +441,31 @@ class PeptideDecoder(nn.Module):
             if cfg.residual == "block_attnres"
             else 0
         )
-        # Charge conditioning: one embedding table over charge bins, added to
-        # every position alongside the positional embedding (class-conditional
-        # style). ``default_charge_bin`` holds the reference-mode bin (charge
-        # +3 → bin 3 - charge_min) so an unconditioned forward() call on a
-        # conditioned model still works (generation with charge=None).
-        self.charge_emb: nn.Embedding | None = (
-            nn.Embedding(cfg.num_charge_bins, cfg.hidden_size)
-            if cfg.conditioning == "charge"
-            else None
-        )
-        if self.charge_emb is not None:
+        # Multi-axis conditioning: one embedding table per active axis
+        # ("charge", "hydro", "hmoment"), added to every position alongside
+        # the positional embedding (class-conditional style). Attributes are
+        # named "<axis>_emb" so existing charge-only checkpoints keep their
+        # exact state-dict keys (charge_emb.weight). ``default_<axis>_bin``
+        # holds the reference-mode bin so an unconditioned forward() call on
+        # a conditioned model still works (generation without bins).
+        self.conditioning_axes: tuple[str, ...] = parse_conditioning_axes(cfg.conditioning)
+        self.charge_emb: nn.Embedding | None = None
+        for axis in self.conditioning_axes:
+            num_bins = {
+                "charge": cfg.num_charge_bins,
+                "hydro": cfg.num_hydro_bins,
+                "hmoment": cfg.num_hmoment_bins,
+            }[axis]
+            setattr(self, f"{axis}_emb", nn.Embedding(num_bins, cfg.hidden_size))
+            if axis == "charge":
+                default_bin = 3 - cfg.charge_min  # reference-mode charge +3 (legacy)
+            elif axis == "hydro":
+                default_bin = int(round((HYDRO_MODE_VALUE - cfg.hydro_min) / cfg.hydro_step))
+            else:
+                default_bin = int(round((HMOMENT_MODE_VALUE - cfg.hmoment_min) / cfg.hmoment_step))
             self.register_buffer(
-                "default_charge_bin",
-                torch.tensor(3 - cfg.charge_min, dtype=torch.long),
+                f"default_{axis}_bin",
+                torch.tensor(max(0, min(num_bins - 1, default_bin)), dtype=torch.long),
                 persistent=False,
             )
 
@@ -400,20 +474,25 @@ class PeptideDecoder(nn.Module):
         input_ids: torch.Tensor,
         *,
         charge: torch.Tensor | list[int] | None = None,
+        cond_bins: dict[str, torch.Tensor | list[int]] | None = None,
         use_cache: bool = False,
         past_keys_values=None,
     ) -> DecoderOutput:
         B, T = input_ids.shape
         pos = torch.arange(T, device=input_ids.device).unsqueeze(0)
         h = self.drop(self.tok_emb(input_ids) + self.pos_emb(pos))
-        if self.charge_emb is not None:
-            if charge is None:
-                charge_t = self.default_charge_bin.to(input_ids.device).expand(B)
-            else:
-                charge_t = torch.as_tensor(charge, device=input_ids.device, dtype=torch.long)
-                if charge_t.dim() == 0:
-                    charge_t = charge_t.expand(B)
-            h = h + self.charge_emb(charge_t)[:, None, :]
+        bins = _normalize_cond_bins(
+            charge=charge,
+            cond_bins=cond_bins,
+            axes=self.conditioning_axes,
+            batch=B,
+            device=input_ids.device,
+        )
+        for axis in self.conditioning_axes:
+            bins_t = bins.get(axis)
+            if bins_t is None:
+                bins_t = getattr(self, f"default_{axis}_bin").to(input_ids.device).expand(B)
+            h = h + getattr(self, f"{axis}_emb")(bins_t)[:, None, :]
 
         sources: list[torch.Tensor] = []
         partial: torch.Tensor | None = None

@@ -332,6 +332,104 @@ def make_charge_dataloader(
     )
 
 
+class ConditionedDataset:
+    """A torch ``Dataset`` over (tokenized sequence, per-axis bins) tuples.
+
+    Used by multi-axis conditioned SFT (``train_generator.py sft
+    --conditioning charge,hydro,...``). Yields ``(ids, bins)`` where ``bins``
+    is a per-axis integer tuple in the dataset's fixed axis order; the
+    matching collator :func:`conditioned_collate` pads sequences and stacks
+    bins into a ``{axis: (B,) long tensor}`` dict.
+    """
+
+    def __init__(
+        self,
+        sequences: list[str],
+        bins_by_axis: dict[str, list[int]],
+        tokenizer_fn,
+        max_length: int = 52,
+    ):
+        axes = tuple(bins_by_axis)
+        if not axes:
+            raise ValueError("bins_by_axis must contain at least one axis")
+        if any(len(bins) != len(sequences) for bins in bins_by_axis.values()):
+            raise ValueError("sequences and every per-axis bin list must align")
+        self.sequences = sequences
+        self.axes = axes
+        self.bins_by_axis = bins_by_axis
+        self.tokenize = tokenizer_fn
+        self.max_length = max_length
+
+    def __len__(self) -> int:
+        return len(self.sequences)
+
+    def __getitem__(self, idx: int) -> tuple[list[int], tuple[int, ...]]:
+        ids = self.tokenize(self.sequences[idx])
+        bins = tuple(self.bins_by_axis[axis][idx] for axis in self.axes)
+        return ids[: self.max_length], bins
+
+
+def conditioned_collate(pad_id: int, axes: tuple[str, ...]):
+    """Collate for multi-axis conditioned causal LM.
+
+    Same dynamic padding + label masking as :func:`causal_lm_collate`, plus a
+    ``{axis: (B,) long tensor}`` dict threaded to ``model(..., cond_bins=...)``.
+    """
+
+    def collate(batch: list[tuple[list[int], tuple[int, ...]]]):
+        import torch
+
+        L = max(len(ids) for ids, _bins in batch)
+        input_ids = torch.full((len(batch), L), pad_id, dtype=torch.long)
+        labels = torch.full((len(batch), L), -100, dtype=torch.long)
+        bins = {axis: torch.empty(len(batch), dtype=torch.long) for axis in axes}
+        for i, (ids, sample_bins) in enumerate(batch):
+            n = len(ids)
+            input_ids[i, :n] = torch.tensor(ids)
+            labels[i, :n] = torch.tensor(ids)
+            for axis, value in zip(axes, sample_bins):
+                bins[axis][i] = value
+        return input_ids, labels, bins
+
+    return collate
+
+
+def make_conditioned_dataloader(
+    sequences: list[str],
+    bins_by_axis: dict[str, list[int]],
+    tokenizer_fn,
+    *,
+    batch_size: int,
+    pad_id: int,
+    max_length: int = 52,
+    num_workers: int = 0,
+    pin_memory: bool = True,
+    shuffle: bool = True,
+    seed: int = 42,
+):
+    """Build a ``DataLoader`` yielding ``(input_ids, labels, {axis: bins})``.
+
+    Mirrors :func:`make_charge_dataloader` for multi-axis conditioning
+    (``model(input_ids, cond_bins=...)`` training).
+    """
+    import torch
+    from torch.utils.data import DataLoader
+
+    ds = ConditionedDataset(sequences, bins_by_axis, tokenizer_fn, max_length=max_length)
+    g = torch.Generator()
+    g.manual_seed(seed)
+    return DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=conditioned_collate(pad_id, ds.axes),
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        generator=g,
+        drop_last=False,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Checkpointing (save/resume model + optimizer + scheduler + step)
 # ---------------------------------------------------------------------------
