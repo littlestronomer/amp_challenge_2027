@@ -5,6 +5,9 @@ feature branch. Keep the current artifacts and use the exact directories below.
 The first command is read-only and checks source hashes, protocol and model
 metadata without loading a model.
 
+Implementation commit: `a444a5d` on branch
+`feat/nway-blend-multiaxis-conditioning`.
+
 ## Optional strict repeatability bundle
 
 The reported strict runs wrote to the same output directory, so their hash

@@ -2,7 +2,8 @@
 
 Date: 2026-09-21. Planning baseline: commit `de53b2e`.
 Audience: a smaller coding model implementing one bounded task at a time.
-Status: implementation specification; the new experiment has not run.
+Status: implemented in commit `a444a5d`; acceptance tests are prepared but not
+run locally, and the new GPU experiment has not run.
 
 ## 1. Decision and scope
 

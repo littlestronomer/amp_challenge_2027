@@ -65,6 +65,9 @@ results and limitations. Do not overwrite old experiment evidence.
 
 ## Selectivity reliability implementation — 2026-09-21
 
+- Implementation commit: `a444a5d` on
+  `feat/nway-blend-multiaxis-conditioning`.
+
 - Fixed ordinary repeatability validation to retain first-run bytes before the
   second run overwrites the shared output directory. Added focused mocked-file
   regression tests; strict mode still compares separate output directories and
