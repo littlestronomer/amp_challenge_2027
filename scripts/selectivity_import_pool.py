@@ -26,7 +26,11 @@ def main(argv=None) -> int:
         (args.source, args.risk_cache, args.cache_protocol, args.reference, args.out)]
     separate_output(out, [source, risk_cache, cache_protocol, reference])
     identity, cells, _ = load_source(source, reference)
-    recipe, risks = read_risk_cache(risk_cache, cells, identity, cache_protocol, reference)
+    # The risk cache is a frozen upstream artifact.  Its source/model/backbone
+    # hashes remain strict, while adding this downstream analysis code should
+    # not force an expensive 145k-sequence re-inference pass.
+    recipe, risks = read_risk_cache(risk_cache, cells, identity, cache_protocol, reference,
+                                    strict_runtime_code=False)
     hybrid = sorted((c for c in cells if c["case"] == "hybrid"), key=lambda c: c["seed"])
     if [c["seed"] for c in hybrid] != [42, 43, 44]:
         raise ValueError("Expected hybrid cells for seeds 42, 43, 44")

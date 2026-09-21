@@ -38,7 +38,8 @@ from amp_challenge_2027.selectivity import (
 
 
 def _read_risk_cache(root: Path, cells: list[dict], source_identity: dict,
-                     protocol_path: Path, reference: Path) -> tuple[dict, dict[int, np.ndarray]]:
+                     protocol_path: Path, reference: Path, *,
+                     strict_runtime_code: bool = True) -> tuple[dict, dict[int, np.ndarray]]:
     recipe = json.loads((root / "run.json").read_text())
     if (recipe.get("kind") != "selectivity_risk_cache_v1"
             or recipe.get("source_run_sha256") != source_identity["run_sha256"]
@@ -48,7 +49,7 @@ def _read_risk_cache(root: Path, cells: list[dict], source_identity: dict,
     current_code = code_identity()
     source_head = source_identity["source_run"]["classifiers"]["hemolysis"]
     union, maps = _build_union(cells)
-    if (recipe.get("runtime", {}).get("code") != current_code
+    if ((strict_runtime_code and recipe.get("runtime", {}).get("code") != current_code)
             or recipe.get("hemolysis_head_files") != source_head.get("files")
             or recipe.get("backbone_revision") != source_identity["backbones"].get("hemolysis")
             or recipe.get("union_sequence_sha256") != sequence_digest(union)
