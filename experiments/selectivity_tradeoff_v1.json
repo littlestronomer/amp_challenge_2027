@@ -1,0 +1,32 @@
+{
+  "kind": "selectivity_tradeoff_v1",
+  "source": "sweep_results/epoch58-top100-v1",
+  "source_case": "hybrid",
+  "generation_seeds": [42, 43, 44],
+  "ranking_seed": 42,
+  "top_size": 100,
+  "shortlist": 2000,
+  "novelty_threshold": 0.8,
+  "novelty_comparison": "inclusive; reject only values greater than threshold",
+  "policies": ["C0", "R1"],
+  "risk_penalty": 0.25,
+  "risk_score": "production HemoScorer.p_risky; positive means risky under candidate label definition",
+  "risk_normalization": "mean and population standard deviation over all hybrid seed-42 library risk predictions; freeze for seeds 43 and 44",
+  "score_definition": "S1=float32(float64(S0)-0.25*(float64(p_risky)-anchor_mean)/anchor_sd); S0 is unchanged frozen five-component combined score",
+  "criteria": {
+    "every_seed_risk_mean_decrease_min": 0.05,
+    "every_seed_risk_p75_increase_max": 0.0,
+    "activity_mean_drop_max": 0.03,
+    "panel_mean_probability_drop_max": 0.03,
+    "each_genus_probability_mean_drop_max": 0.03,
+    "breadth_mean_drop_max": 0.02,
+    "mdr_mean_drop_max": 0.02,
+    "pairwise_distance_mean_drop_max": 0.02
+  },
+  "decision": "passing is candidate for independent evaluation only; no automatic promotion",
+  "limits": [
+    "This is a surrogate sensitivity analysis, not a safety claim or assay result.",
+    "The three generation seeds are descriptive and are not independent model replicates.",
+    "Do not tune the weight or expand the search after viewing this comparison."
+  ]
+}

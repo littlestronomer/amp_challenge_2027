@@ -215,6 +215,15 @@ def verify_setup(
     first_scores = output_dirs[0] / "top_scores.csv"
     second_scores = output_dirs[1] / "top_scores.csv"
 
+    # In ordinary mode both runs write to the same directory. Preserve the
+    # first bytes before the second invocation overwrites them.
+    first_run_bytes = None
+    if not strict_generation:
+        first_run_bytes = {
+            "library": first_library.read_bytes(),
+            "top": first_top.read_bytes(),
+        }
+
     print("[4] Verifying full library")
     full_sequences = _verify_sequences(first_library)
 
@@ -235,14 +244,28 @@ def verify_setup(
     print("[8] Checking reproducibility" if antibacterial_fasta is not None else "[6] Checking reproducibility")
     if not strict_generation:
         _uv_run(dir)
-    if first_library.read_bytes() != second_library.read_bytes():
-        raise ValueError("Reproducibility check failed: library differs between runs.")
-    if first_top.read_bytes() != second_top.read_bytes():
-        raise ValueError("Reproducibility check failed: top list differs between runs.")
-    if strict_generation and first_scores.read_bytes() != second_scores.read_bytes():
-        raise ValueError("Strict reproducibility check failed: top score rows differ between runs.")
+    _verify_repeatability(first_library, first_top, second_library, second_top,
+                          first_run_bytes=first_run_bytes,
+                          first_scores=first_scores if strict_generation else None,
+                          second_scores=second_scores if strict_generation else None)
 
     print("\nAll checks passed. Submission is valid!")
+
+
+def _verify_repeatability(first_library: Path, first_top: Path, second_library: Path,
+                          second_top: Path, *, first_run_bytes: dict | None = None,
+                          first_scores: Path | None = None, second_scores: Path | None = None) -> None:
+    """Compare immutable first-run bytes, including for shared ordinary output paths."""
+    library_bytes = first_run_bytes["library"] if first_run_bytes is not None else first_library.read_bytes()
+    top_bytes = first_run_bytes["top"] if first_run_bytes is not None else first_top.read_bytes()
+    if library_bytes != second_library.read_bytes():
+        raise ValueError("Reproducibility check failed: library differs between runs.")
+    if top_bytes != second_top.read_bytes():
+        raise ValueError("Reproducibility check failed: top list differs between runs.")
+    if (first_scores is None) != (second_scores is None):
+        raise ValueError("Strict reproducibility check requires score paths from both runs.")
+    if first_scores is not None and first_scores.read_bytes() != second_scores.read_bytes():
+        raise ValueError("Strict reproducibility check failed: top score rows differ between runs.")
 
 
 def _verify_generation_manifest(output_dir: Path) -> None:
@@ -253,7 +276,7 @@ def _verify_generation_manifest(output_dir: Path) -> None:
     if not path.is_file():
         raise ValueError(f"Strict generation did not write a success manifest: {path}")
     manifest = json.loads(path.read_text())
-    if manifest.get("kind") != "amp_generation_manifest_v1" or manifest.get("status") != "complete":
+    if manifest.get("kind") not in {"amp_generation_manifest_v1", "amp_generation_manifest_v2"} or manifest.get("status") != "complete":
         raise ValueError(f"Invalid strict generation manifest: {path}")
     outputs = manifest.get("outputs", {})
     if set(outputs) != {"library", "top", "top_scores"}:

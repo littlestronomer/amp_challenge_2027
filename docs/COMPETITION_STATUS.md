@@ -1,40 +1,45 @@
-# Competition status template
+# Competition status
 
-This is a placeholder for the SSH evidence review. Run
-`docs/RUNBOOK_COMPETITION_READINESS.md` and replace each `PENDING` item with a
-source-linked finding. Until then, the scientific decision is **pending**.
+Updated 2026-09-21 from repository inspection and SSH observations pasted by the
+user. Remote measurements below are reported evidence, not artifacts independently
+verified in this checkout. Use `experiments/competition_evidence_v2.json` to
+inventory the files after synchronizing them.
 
-## What is established
+## Current assessment
 
-- The repository contains trained generator and scorer artifacts and historical
-  submission validation/results in `PHASE1_RESULTS.md`.
-- The current default library recipe is the 3:1 incumbent blend. The ranking
-  combines model-derived and property-derived signals; hemolysis weight is zero.
-- Historical abstract statements about safety, calibration and homolog leakage
-  have been removed pending artifact-level review.
+| Area | Current position | Evidence and limit |
+|---|---|---|
+| Engineering | Promising; strict generation reportedly ran twice with matching library, top and score hashes. | The pasted hashes establish same-machine byte integrity as reported. Persist both runs and a comparison marker for an auditable two-run check. |
+| Generator | Keep the incumbent 3:1 blend. | Current top hash reportedly matches historical hybrid seed 42 exactly; no evidence supports generator retraining or changing checkpoints. |
+| Selector | Keep the incumbent ranking. | Historical normalization comparison reportedly retained all 100 incumbent members and did not show a compelling improvement from P1. |
+| Deployed predictor evidence | Weak to moderate retrospective evidence; insufficient for promotion. | Production inference probes reportedly match reconstruction outputs. Reconstructed hemolysis metrics have substantial near-neighbor overlap and unresolved chemistry/provenance concerns. |
+| Family benchmark | No clear MLP advantage over the linear baseline. | All three paired architecture-difference intervals reportedly include zero; these tests are already inspected. |
+| Generated candidates | Plausible model-ranked candidates; no experimental result. | Reported Top-100 audit: 100 valid unique members, no exact reference overlap, maximum similarity 0.8, no pairwise ratio at or above 0.8. Scores are surrogates; synthesis and activity are unassessed. |
+| Wet-lab selection | Unknown. | No independently validated candidate ranking, synthesis assessment, or wet-lab measurements are available. No selection probability is assigned. |
+| Competition standing | Unknown/unavailable. | No official submission receipt, score, or rank is configured. |
 
-## SSH evidence review
-
-| Area | Result | Source artifact | Interpretation |
-|---|---|---|---|
-| Strict generation/manifest | PENDING | | |
-| Inference metadata parity | PENDING | | |
-| Family-held-out activity/panel/hemolysis | PENDING | | |
-| Label/metadata reconstruction | PENDING | | |
-| Label ablation | PENDING | | |
-| Incumbent top-100 audit | PENDING | | |
-| Incumbent vs candidate selector comparison | PENDING | | |
-| External complete-pipeline comparison | PENDING | | |
-| Official score and rank | PENDING / unavailable | | |
+The hemolysis head's positive output is risk under its candidate label definition,
+not percent lysis. Panel breadth/MDR values are fractions of probabilities over
+0.5, not confidence. A reconstructed AUROC or parity probe cannot establish
+generalization to the selected peptides.
 
 ## Decision
 
-**PENDING.** First verify the artifacts above. Do not choose a generator, selector,
-or predictor intervention from this template. No numerical likelihood of
-advancing to wet-lab testing is assigned.
+Retain the incumbent generator and ranking. Do not change model weights or
+promote a risk-aware selector from surrogate scores. The predeclared frozen-pool
+comparison in `experiments/selectivity_tradeoff_v1.json` is authorized as a
+sensitivity description: it can show whether this selector retrieves lower
+predicted-risk alternatives in the same pool and the associated surrogate-score
+trade-offs. That is compatible with weak predictor generalization because the
+experiment evaluates selector behavior and candidate availability, not predictor
+truth. Even a pass only supports considering a separate independent evaluation.
 
-## Next action
+## Remaining evidence
 
-Run the commands in `RUNBOOK_COMPETITION_READINESS.md`, copy the generated
-`STATUS.md` and small summary artifacts back for review, and update this table
-with exact source hashes and limitations.
+1. Persist and inventory both strict-run output directories and the byte-comparison
+   report if a durable repeatability record is required.
+2. Run the bounded GPU-1 cache preflight and risk inference in
+   `docs/RUNBOOK_SELECTIVITY_TRADEOFF.md`; review the complete CPU comparison.
+3. Resolve label units/thresholds, nonstandard chemistry and original split/data
+   provenance before further predictor training.
+4. Add an official submission receipt if one exists; otherwise leave rank unknown.

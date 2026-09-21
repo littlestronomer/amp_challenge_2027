@@ -256,7 +256,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--reference", type=Path, default=ANTIBACTERIAL_FASTA)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--list", action="store_true", help="Validate source hashes/metadata without loading models or writing")
+    parser.add_argument("--list", action="store_true", help="Validate source hashes/metadata only; output resumability and code/runtime identity are checked when executing")
     args = parser.parse_args(argv)
     args.seeds = list(dict.fromkeys(args.seeds))
     reference = sorted(read_reference_set(args.reference))

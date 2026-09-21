@@ -68,6 +68,41 @@ def test_evidence_inventory_fails_closed_on_bad_marker(tmp_path):
     assert inventory["sources"][0]["marker"]["status"] == "invalid"
 
 
+def test_expected_hash_mismatch_is_invalid_even_if_marker_matches_current_bytes(tmp_path):
+    repo = tmp_path / "repo"
+    evidence = repo / "evidence"
+    result = evidence / "result.json"
+    _write_json(result, {"value": 7})
+    _write_json(evidence / "complete.json", {"files": {"result.json": _sha256(result)}})
+    config_data = _inventory_config(repo)
+    config_data["sources"][0]["expected_sha256"] = {"result.json": "0" * 64}
+    config = repo / "config.json"
+    _write_json(config, config_data)
+
+    out = repo / "inventory"
+    assert collect_evidence(repo, config, out) == 2
+    source = json.loads((out / "inventory.json").read_text())["sources"][0]
+    assert source["marker"]["status"] == "verified"
+    assert source["files"][0]["status"] == "invalid"
+    assert "Configured SHA-256" in source["files"][0]["reason"]
+
+
+def test_required_missing_marker_fails_gate_and_status_is_explicit(tmp_path):
+    repo = tmp_path / "repo"
+    evidence = repo / "evidence"
+    _write_json(evidence / "result.json", {"value": 7})
+    config_data = _inventory_config(repo)
+    config = repo / "config.json"
+    _write_json(config, config_data)
+    out = repo / "inventory"
+
+    assert collect_evidence(repo, config, out) == 2
+    inventory = json.loads((out / "inventory.json").read_text())
+    assert inventory["required_sources_missing"] is True
+    status = (out / "STATUS.md").read_text()
+    assert "present`" in status and "does not verify contents" in status
+
+
 def test_evidence_inventory_rejects_root_traversal(tmp_path):
     repo = tmp_path / "repo"
     config = repo / "config.json"
@@ -104,6 +139,18 @@ def test_evidence_inventory_rejects_duplicate_ids(tmp_path):
 
     with pytest.raises(ValueError, match="duplicate source id"):
         collect_evidence(repo, config, repo / "inventory")
+
+
+def test_evidence_inventory_rejects_unknown_adapter_before_output_creation(tmp_path):
+    repo = tmp_path / "repo"
+    config_data = _inventory_config(repo)
+    config_data["sources"][0]["adapter"] = "invented_parser_v9"
+    config = repo / "config.json"
+    _write_json(config, config_data)
+    out = repo / "inventory"
+    with pytest.raises(ValueError, match="unsupported evidence adapter"):
+        collect_evidence(repo, config, out)
+    assert not out.exists()
 
 
 def test_evidence_inventory_leaves_unknown_csv_uninterpreted(tmp_path):

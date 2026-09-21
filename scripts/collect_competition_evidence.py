@@ -13,7 +13,7 @@ from amp_challenge_2027.evidence_inventory import collect_evidence
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=PROJECT_ROOT)
-    parser.add_argument("--config", type=Path, default=PROJECT_ROOT / "experiments/competition_evidence_v1.json")
+    parser.add_argument("--config", type=Path, default=PROJECT_ROOT / "experiments/competition_evidence_v2.json")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     try:

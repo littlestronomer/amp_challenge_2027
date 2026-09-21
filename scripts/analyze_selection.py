@@ -40,7 +40,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--source", type=Path, default=Path("sweep_results/epoch58-top100-v1"))
     result.add_argument("--reference", type=Path, default=baseline.ANTIBACTERIAL_FASTA)
     result.add_argument("--out", type=Path, required=True)
-    result.add_argument("--list", action="store_true", help="Validate all source caches without writing or selecting")
+    result.add_argument("--list", action="store_true", help="Validate source caches only; output resumability and code/runtime identity are checked when executing")
     return result
 
 

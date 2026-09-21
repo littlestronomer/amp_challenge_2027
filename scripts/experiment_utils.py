@@ -76,12 +76,53 @@ def prepare_run(directory: Path, recipe: dict) -> None:
     """Resume only an identical recipe; never mix results from different inputs."""
     manifest = directory / "run.json"
     if manifest.exists():
-        if json.loads(manifest.read_text()) != recipe:
-            raise ValueError(f"Experiment inputs changed: use a new --out directory ({directory})")
+        previous = json.loads(manifest.read_text())
+        if previous != recipe:
+            differences = _recipe_differences(previous, recipe)
+            detail = ", ".join(differences[:12]) or "unknown recipe difference"
+            if len(differences) > 12:
+                detail += f", ... ({len(differences) - 12} more)"
+            raise ValueError(
+                f"Experiment inputs changed: {detail}. Use a new --out directory "
+                f"(existing run: {directory}; suggested: {directory}-v2)"
+            )
     elif directory.exists() and any(directory.iterdir()):
         raise ValueError(f"Refusing nonempty experiment directory without run.json: {directory}")
     else:
         write_json(manifest, recipe)
+
+
+def _recipe_differences(old, new, prefix="") -> list[str]:
+    """Return bounded key-path diagnostics without exposing arbitrary values."""
+    if isinstance(old, dict) and isinstance(new, dict):
+        result = []
+        for key in sorted(set(old) | set(new)):
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if key not in old or key not in new:
+                result.append(_difference_category(path))
+            else:
+                result.extend(_recipe_differences(old[key], new[key], path))
+        return result
+    if isinstance(old, list) and isinstance(new, list):
+        if old == new:
+            return []
+        return [_difference_category(prefix)]
+    if old != new:
+        return [_difference_category(prefix)]
+    return []
+
+
+def _difference_category(path: str) -> str:
+    lower = path.lower()
+    if any(word in lower for word in ("commit", "source_sha", "code", "python", "package", "device", "runtime")):
+        category = "code/runtime"
+    elif any(word in lower for word in ("checkpoint", "model", "classifier", "backbone", "temperature", "head")):
+        category = "model"
+    elif any(word in lower for word in ("protocol", "weight", "seed", "threshold", "top_k", "shortlist", "policy")):
+        category = "protocol"
+    else:
+        category = "data"
+    return f"{category}:{path or '<root>'}"
 
 
 def verify_files(directory: Path, marker: str) -> bool:

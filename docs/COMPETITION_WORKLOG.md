@@ -62,3 +62,29 @@ Implementation started 2026-09-21 from baseline `ccf8ef6`.
 
 Add dated entries below with actual commands, code revision, source hashes,
 results and limitations. Do not overwrite old experiment evidence.
+
+## Selectivity reliability implementation — 2026-09-21
+
+- Fixed ordinary repeatability validation to retain first-run bytes before the
+  second run overwrites the shared output directory. Added focused mocked-file
+  regression tests; strict mode still compares separate output directories and
+  score CSV bytes.
+- Added evidence inventory v2 configuration. It points to the completed
+  `selection-normalization-v1` producer layout, retains the legacy
+  selection-diagnosis source separately, and records reconstruction,
+  predictor-artifact, strict-generation and strict-repeatability evidence as
+  distinct sources. Inventory roots now mean `present`; hashes/markers determine
+  integrity statuses. Expected-hash disagreement is invalid.
+- Generation provenance now uses manifest schema v2 and distinguishes neural
+  backbone applicability, a runtime-resolved revision and an explicitly pinned
+  load. It records effective config source/hash, precision cache identity,
+  logical device and `CUDA_VISIBLE_DEVICES`. Old manifest v1 remains readable.
+- Resume mismatch errors now report bounded differing recipe key paths and
+  categories while preserving the refusal to mix experiments.
+- Added a frozen C0/R1 protocol, resumable sequence-keyed hemolysis risk cache,
+  CPU-only selection comparison and SSH runbook. The risk cache and comparison
+  have not run on SSH; no new result or promotion is claimed.
+- Added a predictor-data repair specification. No training, checkpoint change,
+  generator change or default safety weight was introduced.
+- Local tests were prepared but intentionally not run in this implementation
+  session. SSH inference and scientific outcome review remain pending.

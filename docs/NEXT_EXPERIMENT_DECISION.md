@@ -1,32 +1,42 @@
 # Next experiment decision
 
-Status: **pending remote evidence review**.
+Status: **incumbent retained; one exploratory frozen-pool sensitivity study is
+predeclared.**
 
-## Evidence required before choosing
+The normalization comparison did not show a compelling reason to change the
+ranker. The family-held-out activity, panel and hemolysis architecture comparisons
+report no clear MLP advantage, with paired intervals including zero. The
+reconstructed deployed-head evidence has material overlap and unresolved data
+provenance. Do not retrain on the inspected test results or infer wet-lab success
+from model scores.
 
-1. Strict generation completes with the default incumbent recipe, required
-   scorers and byte-stable outputs.
-2. The current family-held-out benchmark and label/metadata audits are present
-   and their completion hashes verify.
-3. The full top-100 report identifies missing score coverage, close reference
-   neighbors, and any supported score trade-offs.
-4. Existing frozen-library comparisons are inventoried to avoid duplicate
-   generation or embedding computation.
+## Authorized bounded experiment
 
-## Decision rule
+Run C0 (incumbent replay) versus R1 (one fixed hemolysis-risk penalty) on the
+existing hybrid libraries for generation seeds 42, 43 and 44. Use the protocol in
+`experiments/selectivity_tradeoff_v1.json` exactly: fixed ranking seed 42, 2,000
+candidate shortlist, 100 selections, current plausibility and inclusive 0.8
+reference-similarity ceiling, and lambda 0.25 standardized once on all seed-42
+risk predictions. Do not regenerate libraries, hand-replace boundary sequences,
+or tune the penalty after observing results.
 
-- Material label or observation defects: prioritize the existing controlled
-  label-ablation/reconstruction work.
-- Weak or uncertain family-held-out prediction: prioritize data and predictor
-  validation; do not optimize selector weights against weak surrogates.
-- Credible scores with suitable candidates missed by the incumbent: run one
-  predeclared selector comparison on frozen libraries.
-- Credible evaluation with no adequate candidates: propose a separate generator
-  or data experiment.
-- Inconclusive or small differences: retain the incumbent and document limits.
+This experiment is descriptive of selector behavior and availability of lower
+predicted-risk members in the frozen pool. It does not establish that the risk
+head generalizes, that activity is preserved biologically, or that candidates
+will pass synthesis or wet-lab tests. A pass only makes the proposal a candidate
+for independent evaluation; it never promotes the selector automatically.
 
-No branch is authorized by this template alone. After evidence review, replace
-this status with one selected hypothesis, exact source artifacts/hashes,
-protocol, minimum differentiating comparison, criteria fixed before outcomes,
-stop rules and a statement of what result would change the decision. Keep the
-already inspected test excluded from future confirmation claims.
+## Stop and decision rules
+
+- Stop on a source/model/reference/protocol identity mismatch, failed source-top
+  parity, corrupt cache chunk, incomplete risk coverage, failed C0 byte replay,
+  or fewer than 100 eligible candidates.
+- Report every seed and predeclared metric. Require all per-seed criteria in the
+  protocol to pass before proposing independent evaluation.
+- If criteria fail or the effect is small, retain C0 and record the result. Do not
+  expand the weight search to find a favorable setting.
+- Predictor data repair remains the next scientific priority. Follow
+  `docs/PLAN_PREDICTOR_DATA_REPAIR.md` before requesting a separate training plan.
+
+The inspected reconstruction/family benchmark results remain historical
+descriptive evidence and cannot serve as untouched confirmation data.

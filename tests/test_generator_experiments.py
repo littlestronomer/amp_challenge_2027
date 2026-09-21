@@ -8,7 +8,7 @@ from collections import Counter
 
 import numpy as np
 import pytest
-from experiment_utils import mark_files, prepare_run, verify_files, write_json
+from experiment_utils import _recipe_differences, mark_files, prepare_run, verify_files, write_json
 from sweep_checkpoints import choose_snapshots, copy_generation, generation_source
 from sweep_library_selection import main as selection_main
 from sweep_library_selection import panel_artifacts, read_scores
@@ -85,6 +85,14 @@ def test_reused_directory_and_changed_cached_artifacts_rejected(tmp_path):
     (out / "library.fasta").write_text("changed")
     with pytest.raises(ValueError, match="changed"):
         verify_files(out, "done.json")
+
+
+def test_resume_mismatch_reports_bounded_categorized_key_paths(tmp_path):
+    out = tmp_path / "experiment"
+    prepare_run(out, {"code": {"commit": "a" * 40}, "reference_sha256": "a" * 64})
+    with pytest.raises(ValueError, match="code/runtime:code.commit"):
+        prepare_run(out, {"code": {"commit": "b" * 40}, "reference_sha256": "a" * 64})
+    assert _recipe_differences({"seed": 42}, {"seed": 43}) == ["protocol:seed"]
 
 
 def test_missing_panel_config_never_uses_shared_stale_metadata(tmp_path):
