@@ -1,8 +1,7 @@
 from pathlib import Path
 
 import pytest
-
-from scripts.verify_submission import _verify_repeatability
+from verify_submission import _verify_repeatability
 
 
 def _pair(tmp_path: Path, first: dict[str, bytes], second: dict[str, bytes]):

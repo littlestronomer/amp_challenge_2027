@@ -50,6 +50,7 @@ def test_strict_run_comparison_refuses_recipe_change(tmp_path):
 
 def test_evidence_inventory_rechecks_both_manifests_and_output_hashes(tmp_path):
     repo = tmp_path / "repo"
+    repo.mkdir()
     _run(repo / "source1", output_suffix="1")
     _run(repo / "source2", output_suffix="2")
     bundle = run(repo / "source1", repo / "source2", repo / "strict-repeatability-v1")
