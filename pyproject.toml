@@ -46,6 +46,11 @@ seqme = [
     # predictors required by ConformityScore); esm2 pulls the embedding stack.
     "seqme[esm2,aa_descriptors]>=0.1",
 ]
+jev = [
+    # Offline exploration only: Jev (TypeSafe AI "System One") cross-check audit
+    # in scripts/audit_jev_crosscheck.py. Never a dependency of `generate`.
+    "typesafe-sdk>=0.7,<0.8",
+]
 
 # Blackwell GPUs (RTX 50-series, compute capability 12.0) need torch built
 # against CUDA 12.8+. The standard PyPI torch wheel targets older CUDA and

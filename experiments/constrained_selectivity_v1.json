@@ -1,0 +1,20 @@
+{
+  "kind": "constrained_selectivity_v1",
+  "version": 1,
+  "source": "sweep_results/epoch58-top100-v1",
+  "risk_cache": "sweep_results/selectivity-risk-v1",
+  "cache_protocol": "experiments/selectivity_tradeoff_v1.json",
+  "reference": "data/antibacterial.fasta",
+  "cases": ["hybrid"],
+  "seeds": [42, 43, 44],
+  "top_size": 100,
+  "activity_drop_max": 0.03,
+  "panel_drop_max": 0.03,
+  "breadth_drop_max": 0.02,
+  "mdr_drop_max": 0.02,
+  "distance_drop_max": 0.02,
+  "risk_tail_threshold": 0.8,
+  "risk_ceilings": [0.25, 0.5, 0.75, 1.0],
+  "novelty_threshold": 0.8,
+  "policy": "minimize mean hemolysis risk subject to incumbent floors, tail ceiling, exact novelty, and pairwise diversity"
+}
