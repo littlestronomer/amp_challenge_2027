@@ -20,16 +20,10 @@ def test_solver_returns_a_constrained_top100():
     from amp_challenge_2027.selectivity_research.solver import solve_pool
 
     alphabet = "ACDEFGHIKLMNPQRSTVWY"
+    rng = np.random.default_rng(123)
     rows = []
     for i in range(110):
-        # Encode the index in base-20 so the deterministic fixtures are not a
-        # family of near-duplicate cyclic shifts.
-        value = i
-        digits = []
-        for _ in range(12):
-            digits.append(alphabet[value % len(alphabet)])
-            value = value // len(alphabet) + 17
-        sequence = "".join(digits)
+        sequence = "".join(rng.choice(list(alphabet), size=12))
         row = {"sequence": sequence, "library_index": i, "activity": .8,
                "hemolysis_risk": .1 if i >= 100 else .3, "conformity": .5,
                "precision": .9, "incumbent_member": i < 100,
