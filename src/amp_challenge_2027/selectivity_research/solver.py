@@ -61,7 +61,8 @@ def _reference_conflicts(sequences: list[str], indices: np.ndarray, reference: s
 
 
 def _milp(frame, candidates: np.ndarray, genera: list[str], protocol: dict, profile: str,
-          forbidden: set[int], *, time_limit: float, mip_rel_gap: float):
+          forbidden: set[int], pair_cuts: set[tuple[int, int]], *, time_limit: float,
+          mip_rel_gap: float):
     try:
         from scipy.optimize import Bounds, LinearConstraint, milp
         from scipy.sparse import lil_matrix
@@ -85,7 +86,7 @@ def _milp(frame, candidates: np.ndarray, genera: list[str], protocol: dict, prof
     inc_mdr = ((inc_panel[:, mdr] > 0.5).mean(axis=1).mean() if mdr else 0.0)
     inc_activity = frame.iloc[inc]["activity"].mean()
     inc_tail = int((frame.iloc[inc]["hemolysis_risk"].to_numpy(float) > float(protocol["risk_tail_threshold"])).sum())
-    row_count = len(genera) + 6
+    row_count = len(genera) + 6 + len(pair_cuts)
     matrix = lil_matrix((row_count, len(candidates)), dtype=float)
     lower = np.full(row_count, -np.inf, dtype=float)
     upper = np.full(row_count, np.inf, dtype=float)
@@ -103,6 +104,14 @@ def _milp(frame, candidates: np.ndarray, genera: list[str], protocol: dict, prof
     # The final row is a harmless redundant bound that makes the generated
     # matrix shape explicit and stable for manifests.
     matrix[row, :] = arrays["risk"]; lower[row] = -np.inf; upper[row] = np.inf
+    local_index = {int(value): position for position, value in enumerate(candidates)}
+    for left, right in sorted(pair_cuts):
+        if left not in local_index or right not in local_index:
+            continue
+        matrix[row, local_index[left]] = 1.0
+        matrix[row, local_index[right]] = 1.0
+        upper[row] = 1.0
+        row += 1
 
     ceiling = float(profile)
     ub = np.ones(len(candidates), dtype=float)
@@ -132,6 +141,7 @@ def solve_pool(frame, eligible: np.ndarray, genera: list[str], protocol: dict, p
     """Solve one risk-ceiling profile and add exact novelty/diversity cuts."""
     candidates = np.flatnonzero(np.asarray(eligible, dtype=bool)).astype(np.int64)
     forbidden: set[int] = set()
+    pair_cuts: set[tuple[int, int]] = set()
     metadata = {"profile": profile, "candidate_count": int(len(candidates)),
                 "cut_rounds": 0, "pair_cuts": 0, "reference_cuts": 0,
                 "time_limit_seconds": float(time_limit), "mip_rel_gap": float(mip_rel_gap)}
@@ -147,7 +157,7 @@ def solve_pool(frame, eligible: np.ndarray, genera: list[str], protocol: dict, p
     last_status = "failed_solver"
     last_message = ""
     for round_index in range(max_cut_rounds + 1):
-        outcome = _milp(frame, candidates, genera, protocol, profile, forbidden,
+        outcome = _milp(frame, candidates, genera, protocol, profile, forbidden, pair_cuts,
                         time_limit=time_limit, mip_rel_gap=mip_rel_gap)
         if len(outcome) == 3:
             _result, last_message, last_status = outcome
@@ -160,10 +170,8 @@ def solve_pool(frame, eligible: np.ndarray, genera: list[str], protocol: dict, p
             forbidden.update(novelty_conflicts)
             metadata["reference_cuts"] += len(novelty_conflicts)
         if pair_conflicts:
-            # Re-solving with a candidate-level cut for every member is a
-            # conservative valid cut and avoids retaining a clustered top set.
             for left, right in pair_conflicts:
-                forbidden.add(max(left, right))
+                pair_cuts.add(tuple(sorted((left, right))))
             metadata["pair_cuts"] += len(pair_conflicts)
         metadata["cut_rounds"] = round_index + 1
         if not pair_conflicts and not novelty_conflicts:
@@ -176,6 +184,7 @@ def solve_pool(frame, eligible: np.ndarray, genera: list[str], protocol: dict, p
                 last_status = "failed_validation"
                 last_message = "post-solve pairwise distance is below incumbent floor"
             return SolveResult(last_status, last_message, selected.astype(int), summary, metadata)
-        if len(forbidden) >= len(candidates) - 100:
-            break
+    if last_status in {"optimal", "feasible_unproven_optimal"}:
+        last_status = "infeasible"
+        last_message = "cut rounds exhausted before a valid top-100 was found"
     return SolveResult(last_status, last_message, np.array([], dtype=int), {}, metadata)

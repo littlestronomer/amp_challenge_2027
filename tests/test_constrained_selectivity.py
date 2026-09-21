@@ -22,7 +22,14 @@ def test_solver_returns_a_constrained_top100():
     alphabet = "ACDEFGHIKLMNPQRSTVWY"
     rows = []
     for i in range(110):
-        sequence = "".join(alphabet[(i * 7 + j * 11) % len(alphabet)] for j in range(12))
+        # Encode the index in base-20 so the deterministic fixtures are not a
+        # family of near-duplicate cyclic shifts.
+        value = i
+        digits = []
+        for _ in range(12):
+            digits.append(alphabet[value % len(alphabet)])
+            value = value // len(alphabet) + 17
+        sequence = "".join(digits)
         row = {"sequence": sequence, "library_index": i, "activity": .8,
                "hemolysis_risk": .1 if i >= 100 else .3, "conformity": .5,
                "precision": .9, "incumbent_member": i < 100,
