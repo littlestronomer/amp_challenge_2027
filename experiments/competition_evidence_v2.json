@@ -297,21 +297,31 @@
       "required": false,
       "inspection_status": "already_inspected",
       "files": [
-        "report.json"
+        "results.csv"
       ],
-      "marker": null
+      "marker": {
+        "name": "complete.json",
+        "files": [
+          "results.csv"
+        ]
+      }
     },
     {
       "id": "predictor_artifact_audit",
       "kind": "predictor_artifact_audit",
-      "root": "sweep_results/reward-reconstruction-v1",
+      "root": "sweep_results/reward-artifact-audit-v2",
       "required": false,
       "inspection_status": "already_inspected",
       "files": [
-        "artifact_audit.json",
-        "reconstruction_manifest.json"
+        "run.json",
+        "inventory.json"
       ],
-      "marker": null
+      "marker": {
+        "name": "complete.json",
+        "files": [
+          "inventory.json"
+        ]
+      }
     },
     {
       "id": "strict_repeatability",

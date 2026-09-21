@@ -5,11 +5,26 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 import report_top100_readiness as top100
 
 from amp_challenge_2027.evidence_inventory import collect_evidence
+
+
+def test_v2_predictor_inventory_matches_producer_outputs():
+    config = json.loads((Path(__file__).parents[1] / "experiments/competition_evidence_v2.json").read_text())
+    sources = {source["id"]: source for source in config["sources"]}
+    reconstruction = sources["predictor_reconstruction"]
+    assert reconstruction["root"] == "sweep_results/reward-reconstruction-v1"
+    assert reconstruction["files"] == ["results.csv"]
+    assert reconstruction["marker"] == {"name": "complete.json", "files": ["results.csv"]}
+
+    audit = sources["predictor_artifact_audit"]
+    assert audit["root"] == "sweep_results/reward-artifact-audit-v2"
+    assert audit["files"] == ["run.json", "inventory.json"]
+    assert audit["marker"] == {"name": "complete.json", "files": ["inventory.json"]}
 
 
 def _write_json(path, value):
