@@ -189,7 +189,7 @@ def run(args, *, policies: tuple[str, ...]) -> None:
     write_summary(args.out / "results.csv", plain(summaries))
     write_summary(args.out / "seed_summary.csv", aggregate(summaries))
     write_summary(args.out / "case_paired_deltas.csv", paired_deltas(summaries, "policy"))
-    root_files = ["inventory.json", "normalization_anchor.json", "baseline_results.csv", "results.csv",
+    root_files = ["run.json", "inventory.json", "normalization_anchor.json", "baseline_results.csv", "results.csv",
                   "seed_summary.csv", "case_paired_deltas.csv"] + [f"{name}.csv" for name in TABLES]
     if len(policies) == 2:
         write_summary(args.out / "policy_paired_deltas.csv", paired_deltas(summaries, "case"))

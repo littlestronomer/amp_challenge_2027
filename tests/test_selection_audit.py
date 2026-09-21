@@ -58,6 +58,8 @@ def test_six_p0_and_six_p1_cells_replay_preserve_and_resume(tmp_path, monkeypatc
         assert len(list(csv.DictReader(handle))) == 12
     with (tmp_path / "audit/policy_paired_deltas.csv").open() as handle:
         assert len(list(csv.DictReader(handle))) == 6
+    root_marker = json.loads((tmp_path / "audit/complete.json").read_text())
+    assert root_marker["files"]["run.json"] == sha256(tmp_path / "audit/run.json")
     before = (tmp_path / "audit/results.csv").read_bytes()
     monkeypatch.setattr(analyze, "selection_stages", lambda *_a, **_k: pytest.fail("complete cell must resume"))
     sweep.main(argv)
