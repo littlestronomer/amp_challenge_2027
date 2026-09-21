@@ -84,8 +84,12 @@ def _sync_uv(repo_dir: Path, extras: list[str], uv: str = "uv") -> None:
 def _uv_run(
     repo_dir: Path,
     uv: str = "uv",
+    *,
+    strict_out_dir: Path | None = None,
 ) -> None:
     cmd = [uv, "run", "--no-sync", ENTRY_POINT]
+    if strict_out_dir is not None:
+        cmd += ["--strict", "--out-dir", str(strict_out_dir)]
     env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
     print(f"Running: {' '.join(cmd)}")
     try:
@@ -181,6 +185,7 @@ def verify_setup(
     branch: str | None = None,
     extras: list[str] | None = None,
     antibacterial_fasta: Path | None = None,
+    strict_generation: bool = False,
 ):
     extras = extras or []
 
@@ -192,17 +197,29 @@ def verify_setup(
     print("[2] Installing dependencies")
     _sync_uv(dir, extras)
 
-    library_fasta = dir / ENTRY_POINT / "library.fasta"
-    top_fasta = dir / ENTRY_POINT / "top.fasta"
+    if strict_generation:
+        output_dirs = [dir / ".strict-generation-run-1", dir / ".strict-generation-run-2"]
+        print("[3] Generating frozen incumbent twice in strict mode")
+        for index, output_dir in enumerate(output_dirs, start=1):
+            _uv_run(dir, strict_out_dir=Path(f".strict-generation-run-{index}"))
+            _verify_generation_manifest(output_dir)
+    else:
+        output_dirs = [dir / ENTRY_POINT, dir / ENTRY_POINT]
+        print("[3] Generating library")
+        _uv_run(dir)
 
-    print("[3] Generating library")
-    _uv_run(dir)
+    first_library = output_dirs[0] / "library.fasta"
+    first_top = output_dirs[0] / "top.fasta"
+    second_library = output_dirs[1] / "library.fasta"
+    second_top = output_dirs[1] / "top.fasta"
+    first_scores = output_dirs[0] / "top_scores.csv"
+    second_scores = output_dirs[1] / "top_scores.csv"
 
     print("[4] Verifying full library")
-    full_sequences = _verify_sequences(library_fasta)
+    full_sequences = _verify_sequences(first_library)
 
     print("[5] Verifying top list")
-    _verify_top(top_fasta, full_sequences, TOP_SIZE)
+    _verify_top(first_top, full_sequences, TOP_SIZE)
 
     if antibacterial_fasta is not None:
         _, antibacterial_sequences = _read_fasta(antibacterial_fasta)
@@ -212,24 +229,44 @@ def verify_setup(
         _verify_no_overlap(full_sequences, antibacterial_set)
 
         print(f"[7] Checking top similarity with {antibacterial_fasta}")
-        _, top_sequences = _read_fasta(top_fasta)
+        _, top_sequences = _read_fasta(first_top)
         _veritfy_max_simularity(set(top_sequences), antibacterial_set)
 
     print("[8] Checking reproducibility" if antibacterial_fasta is not None else "[6] Checking reproducibility")
-    library_data = library_fasta.read_bytes()
-    top_data = top_fasta.read_bytes()
-    _uv_run(dir)
-
-    if library_fasta.read_bytes() != library_data:
-        raise ValueError(
-            "Reproducibility check failed: two runs with identical inputs produced different output."
-        )
-    if top_fasta.read_bytes() != top_data:
-        raise ValueError(
-            "Reproducibility check failed: top list differs between runs."
-        )
+    if not strict_generation:
+        _uv_run(dir)
+    if first_library.read_bytes() != second_library.read_bytes():
+        raise ValueError("Reproducibility check failed: library differs between runs.")
+    if first_top.read_bytes() != second_top.read_bytes():
+        raise ValueError("Reproducibility check failed: top list differs between runs.")
+    if strict_generation and first_scores.read_bytes() != second_scores.read_bytes():
+        raise ValueError("Strict reproducibility check failed: top score rows differ between runs.")
 
     print("\nAll checks passed. Submission is valid!")
+
+
+def _verify_generation_manifest(output_dir: Path) -> None:
+    import hashlib
+    import json
+
+    path = output_dir / "generation_manifest.json"
+    if not path.is_file():
+        raise ValueError(f"Strict generation did not write a success manifest: {path}")
+    manifest = json.loads(path.read_text())
+    if manifest.get("kind") != "amp_generation_manifest_v1" or manifest.get("status") != "complete":
+        raise ValueError(f"Invalid strict generation manifest: {path}")
+    outputs = manifest.get("outputs", {})
+    if set(outputs) != {"library", "top", "top_scores"}:
+        raise ValueError("Strict manifest is missing an output artifact")
+    for name, item in outputs.items():
+        relative = Path(item.get("path", ""))
+        if relative.is_absolute() or relative.name != str(relative):
+            raise ValueError(f"Invalid output path in strict manifest: {relative}")
+        artifact = output_dir / relative
+        if not artifact.is_file() or hashlib.sha256(artifact.read_bytes()).hexdigest() != item.get("sha256"):
+            raise ValueError(f"Strict generation manifest hash mismatch: {artifact}")
+    if set(manifest.get("actual_components", [])) != {"activity", "breadth", "conformity", "mdr", "precision"}:
+        raise ValueError("Strict manifest does not contain every incumbent scorer component")
 
 
 if __name__ == "__main__":
@@ -248,6 +285,10 @@ if __name__ == "__main__":
     parser.add_argument("url", help="GitHub repository URL.")
     parser.add_argument(
         "--branch", default=None, help="Git branch to clone (default: repo default)."
+    )
+    parser.add_argument(
+        "--strict-generation", action="store_true",
+        help="Run the frozen default incumbent twice with --strict in separate output directories",
     )
     parser.add_argument(
         "--dir",
@@ -278,6 +319,7 @@ if __name__ == "__main__":
             branch=args.branch,
             extras=args.extras,
             antibacterial_fasta=args.antibacterial_fasta,
+            strict_generation=args.strict_generation,
         )
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)

@@ -123,6 +123,11 @@ for hash-pinned validation diagnostics with explicit historical-provenance limit
 For fresh predictor training with joint sequence-family train/validation/calibration/test
 splits, linear controls and a sealed final test, see
 [the generalization benchmark runbook](docs/RUNBOOK_REWARD_GENERALIZATION.md).
+For the strict incumbent release check, hash-linked result inventory and whole-top-100
+readiness audit, see [the competition readiness runbook](docs/RUNBOOK_COMPETITION_READINESS.md).
+The current claim status and next-experiment gate are summarized in
+[the competition status page](docs/COMPETITION_STATUS.md) and
+[the claims register](docs/CLAIMS_REGISTER.md).
 
 Verify your submission with:
 

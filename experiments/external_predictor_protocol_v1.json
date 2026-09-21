@@ -1,0 +1,17 @@
+{
+  "kind": "external_predictor_protocol_v1",
+  "status": "not_ready_no_source_selected",
+  "reason": "No independent experimental source with verified task compatibility, reuse terms, source/study metadata, and audited overlap was selected during implementation.",
+  "prohibited_shortcut": "Do not treat a new partition of the current already-inspected DBAASP-derived data as independent external evidence.",
+  "required_before_execution": [
+    "Identify a legally reusable experimental dataset and exact immutable snapshot/hash.",
+    "Document source studies, organisms/strains, assay conditions, MIC or HC50 units, modifications and termini.",
+    "Declare label mapping, censoring, conflicts, missingness and task-compatibility rules before inspecting model outcomes.",
+    "Audit exact and near sequence overlap against every model-training, validation, calibration, and already-inspected test source.",
+    "Freeze model artifacts, calibration, comparators, metrics, family/study resampling, and minimum support rules.",
+    "Record unknown ESM pretraining exposure and any remaining source/assay confounding."
+  ],
+  "models": ["frozen deployed heads", "family-benchmark linear control", "family-benchmark MLP control", "declared simple prevalence/property baseline"],
+  "metrics": ["macro AUROC", "macro average precision", "Brier score", "log loss", "ECE", "family/study-resampled uncertainty"],
+  "fitting_on_external_data": false
+}

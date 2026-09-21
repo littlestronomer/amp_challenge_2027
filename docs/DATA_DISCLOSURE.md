@@ -8,6 +8,11 @@ PHASE1_RESULTS.md but not in the shipped training paths). Provenance
 hashes live in `data/raw/sources.json` on the training machine; DRAMP
 SHA-256 values are quoted below.
 
+This disclosure records declared provenance; it does not mean that every
+training snapshot is included in this checkout or may be redistributed. Verify
+each artifact's actual input hashes and applicable source terms before treating
+the repository as a complete public data release.
+
 ## Final-stack training data
 
 | artifact trained | data | source & license | retrieved |

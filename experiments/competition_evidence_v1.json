@@ -1,0 +1,154 @@
+{
+  "kind": "competition_evidence_inventory_v1",
+  "sources": [
+    {
+      "id": "historical_phase1",
+      "kind": "historical_results",
+      "root": ".",
+      "required": true,
+      "inspection_status": "already_inspected",
+      "files": ["PHASE1_RESULTS.md"],
+      "marker": null
+    },
+    {
+      "id": "incumbent_generator_artifacts",
+      "kind": "model_artifacts",
+      "root": ".",
+      "required": true,
+      "inspection_status": "unknown",
+      "files": [
+        "checkpoint/generator/config.json", "checkpoint/generator/model.pt",
+        "checkpoint/generator_blend/config.json", "checkpoint/generator_blend/model.pt",
+        "src/amp_challenge_2027/inference_metadata.json",
+        "data/antibacterial.fasta"
+      ],
+      "marker": null
+    },
+    {
+      "id": "strict_generation_readiness",
+      "kind": "strict_generation",
+      "root": "generate/competition-readiness-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["library.fasta", "top.fasta", "top_scores.csv", "generation_manifest.json"],
+      "marker": {"name": "generation_manifest.json", "type": "generation_manifest", "outputs": ["library", "top", "top_scores"]}
+    },
+    {
+      "id": "inference_metadata_audit",
+      "kind": "inference_audit",
+      "root": "sweep_results/inference-metadata-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["report.json"],
+      "marker": null
+    },
+    {
+      "id": "inference_probe_audit",
+      "kind": "inference_audit",
+      "root": "sweep_results/inference-probes-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["report.json"],
+      "marker": null
+    },
+    {
+      "id": "family_benchmark_test",
+      "kind": "family_benchmark_test",
+      "root": "sweep_results/reward-generalization-test-v1",
+      "required": false,
+      "inspection_status": "already_inspected",
+      "files": ["results.csv", "paired_architecture_deltas.json"],
+      "marker": {"name": "complete.json", "files": ["run.json", "results.csv", "paired_architecture_deltas.json"]}
+    },
+    {
+      "id": "family_benchmark_split",
+      "kind": "family_benchmark_split",
+      "root": "sweep_results/reward-generalization-data-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["run.json", "dataset.json", "families.csv", "preflight.json", "support.csv", "curation.json"],
+      "marker": {"name": "complete.json", "files": ["run.json", "dataset.json", "families.csv", "preflight.json", "support.csv", "curation.json", "curation_events.json"]}
+    },
+    {
+      "id": "family_benchmark_fits",
+      "kind": "family_benchmark_fits",
+      "root": "sweep_results/reward-generalization-fit-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["run.json", "training_summary.csv", "model_inventory.json", "embedding_inventory.json"],
+      "marker": {"name": "sealed.json", "files": ["run.json", "training_summary.csv", "model_inventory.json", "embedding_inventory.json"]}
+    },
+    {
+      "id": "label_observation_audit",
+      "kind": "label_observation_audit",
+      "root": "sweep_results/label-observations-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["report.json"],
+      "marker": null
+    },
+    {
+      "id": "metadata_reconciliation",
+      "kind": "metadata_reconciliation",
+      "root": "sweep_results/metadata-reconciliation-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["report.json"],
+      "marker": null
+    },
+    {
+      "id": "molar_candidates",
+      "kind": "candidate_label_audit",
+      "root": "sweep_results/molar-candidates-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["report.json"],
+      "marker": null
+    },
+    {
+      "id": "label_ablation_fit",
+      "kind": "label_ablation",
+      "root": "sweep_results/label-ablation-fit-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["validation_summary.csv", "validation_deltas.csv", "validation_seeds.csv"],
+      "marker": {"name": "complete.json", "files": ["run.json", "validation_summary.csv", "validation_deltas.csv", "validation_seeds.csv", "model_inventory.json", "embedding_inventory.json"]}
+    },
+    {
+      "id": "selection_diagnosis",
+      "kind": "selection_diagnosis",
+      "root": "sweep_results/selection-diagnosis-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["baseline_results.csv", "results.csv", "inventory.json"],
+      "marker": null
+    },
+    {
+      "id": "top100_comparison",
+      "kind": "top100_comparison",
+      "root": "sweep_results/epoch58-top100-v1",
+      "required": false,
+      "inspection_status": "already_inspected",
+      "files": ["results.csv", "paired_deltas.csv"],
+      "marker": null
+    },
+    {
+      "id": "top100_readiness_audit",
+      "kind": "top100_readiness",
+      "root": "sweep_results/top100-readiness-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["candidates.csv", "summary.json", "REPORT.md"],
+      "marker": {"name": "complete.json", "files": ["candidates.csv", "summary.json", "REPORT.md"]}
+    },
+    {
+      "id": "official_submission_receipt",
+      "kind": "official_standing",
+      "root": "sweep_results/official-submission-v1",
+      "required": false,
+      "inspection_status": "unknown",
+      "files": ["submission_receipt.json"],
+      "marker": null
+    }
+  ]
+}

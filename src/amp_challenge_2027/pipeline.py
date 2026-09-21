@@ -202,7 +202,7 @@ def build_composite_scorer(
 
 
 def score_candidates(
-    scorer: CompositeScorer, sequences: list[str]
+    scorer: CompositeScorer, sequences: list[str], *, expected_components: set[str] | None = None
 ) -> tuple[np.ndarray | None, dict[str, np.ndarray]]:
     """Combined score for ``sequences``; prints per-component summary stats.
 
@@ -210,7 +210,19 @@ def score_candidates(
     """
     if scorer is None or not sequences:
         return None, {}
+    if expected_components is not None and set(scorer.names) != expected_components:
+        missing = sorted(expected_components - set(scorer.names))
+        unexpected = sorted(set(scorer.names) - expected_components)
+        raise RuntimeError(f"Scorer component mismatch; missing={missing}, unexpected={unexpected}")
     combined, parts = scorer.score(sequences)
+    if expected_components is not None:
+        if set(parts) != expected_components or combined.shape != (len(sequences),):
+            raise RuntimeError("Scorer returned an unexpected component set or shape")
+        for name, values in parts.items():
+            if values.shape != (len(sequences),) or not np.isfinite(values).all():
+                raise RuntimeError(f"Scorer {name!r} returned invalid shape or non-finite values")
+        if not np.isfinite(combined).all():
+            raise RuntimeError("Composite scorer returned non-finite values")
     stats = ", ".join(
         f"{name}: μ={vals.mean():.3f} σ={vals.std():.3f} [{vals.min():.3f},{vals.max():.3f}]"
         for name, vals in parts.items()

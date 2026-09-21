@@ -32,6 +32,7 @@ back to pure diversity.
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
 from pathlib import Path
 
@@ -225,6 +226,10 @@ def main() -> None:
     parser.add_argument("--length", type=int, default=MAX_LENGTH)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument(
+        "--strict", action="store_true",
+        help="Require the frozen competition recipe and write a hash-linked generation manifest",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default="cuda" if _torch_available() and _cuda_available() else "cpu",
@@ -363,6 +368,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.strict:
+        _validate_strict_recipe(args)
+    if args.strict and args.out_dir.exists():
+        raise FileExistsError(
+            f"Strict output directory must be new; choose a fresh --out-dir: {args.out_dir}"
+        )
+
     np.random.seed(args.seed)  # belt-and-suspenders for any global-RNG callers
 
     # --- 0. Reference set (for no-overlap, novelty, and conformity) --------
@@ -372,6 +384,8 @@ def main() -> None:
         print(f"[generate] loaded {len(reference_set)} reference sequences for filtering/scoring")
     else:
         print(f"[generate] WARNING: {ANTIBACTERIAL_FASTA} missing; skipping overlap/novelty checks")
+    if args.strict and not reference_set:
+        raise RuntimeError("Strict generation requires a nonempty antibacterial reference FASTA")
 
     # --- 1. Raw candidates: pool files (blend/rerank) or model sampling -----
     target = args.n_sequences
@@ -387,12 +401,20 @@ def main() -> None:
             and args.checkpoint.exists()
             and (args.checkpoint / "config.json").exists()
         )
+        if args.strict and not use_model:
+            raise RuntimeError(f"Strict generation requires trained generator weights: {args.checkpoint}")
         # Blend auto-detect: the repo ships the locked-hybrid secondary at a
         # stable path; its PRESENCE defines the default output (a fresh clone
         # reproduces the hybrid; without it, legacy single-checkpoint bytes).
         if args.blend_checkpoint is None:
             auto = CHECKPOINT_DIR / "generator_blend"
             args.blend_checkpoint = auto if (auto / "config.json").exists() else None
+        if args.strict and (
+            args.blend_checkpoint is None
+            or not (args.blend_checkpoint / "model.pt").is_file()
+            or not (args.blend_checkpoint / "config.json").is_file()
+        ):
+            raise RuntimeError("Strict incumbent generation requires the secondary blend checkpoint")
         all_sequences = _sample_candidates(args, use_model, reference_set, target)
 
     clean = clean_candidates(all_sequences, reference_set)
@@ -426,7 +448,10 @@ def main() -> None:
         )
         else None
     )
-    combined, parts = score_candidates(scorer, clean)
+    expected_components = _strict_components(args) if args.strict else None
+    if args.strict and scorer is None:
+        raise RuntimeError("Strict generation has no requested scorer components")
+    combined, parts = score_candidates(scorer, clean, expected_components=expected_components)
     if scorer is None:
         print("[generate] no scoring components available; ranking by diversity only")
 
@@ -442,11 +467,35 @@ def main() -> None:
     )
     print(f"[generate] selection: {len(result.library)} in library, {len(result.top)} in top")
 
+    if args.strict:
+        _validate_strict_outputs(result.library, result.top, reference_set)
+
     # --- 4. Write outputs --------------------------------------------------
     library_path = args.out_dir / "library.fasta"
     top_path = args.out_dir / "top.fasta"
+    score_path = args.out_dir / "top_scores.csv"
     write_fasta(result.library, library_path)
     write_fasta(result.top, top_path)
+    if args.strict:
+        index = {sequence: i for i, sequence in enumerate(clean)}
+        fields = ["rank", "sequence", "composite_score", *sorted(parts)]
+        with score_path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            for rank, sequence in enumerate(result.top, start=1):
+                row_index = index[sequence]
+                row = {"rank": rank, "sequence": sequence, "composite_score": float(combined[row_index])}
+                row.update({name: float(values[row_index]) for name, values in parts.items()})
+                writer.writerow(row)
+    if args.strict:
+        from amp_challenge_2027.release_manifest import write_generation_manifest
+
+        write_generation_manifest(
+            args,
+            scorer,
+            ANTIBACTERIAL_FASTA,
+            {"library": library_path, "top": top_path, "top_scores": score_path},
+        )
     print(f"[generate] wrote {len(result.library)} sequences → {library_path}")
     print(f"[generate] wrote top {len(result.top)} sequences → {top_path}")
 
@@ -483,6 +532,8 @@ def _sample_candidates(
         blend_dir is not None and use_model and (blend_dir / "config.json").exists() and per_b >= 1
     )
     if blend_dir is not None and not (blend_dir / "config.json").exists():
+        if getattr(args, "strict", False):
+            raise RuntimeError(f"Strict generation cannot use missing blend checkpoint: {blend_dir}")
         print(f"[generate] blend checkpoint missing config ({blend_dir}); blending disabled")
 
     if not use_blend:
@@ -562,6 +613,8 @@ def _sample_single(
                     charge_conditioned=args.charge_conditioned or None,
                 )
             except Exception as e:
+                if getattr(args, "strict", False):
+                    raise RuntimeError(f"Strict generator inference failed at {args.checkpoint}: {e}") from e
                 print(f"[generate] model inference failed ({e}); falling back to seeded sampler")
                 use_model = False
                 batch = generate_fallback(batch_size, seed=round_seed, length=args.length)
@@ -590,6 +643,79 @@ def _cuda_available() -> bool:
         return torch.cuda.is_available()
     except Exception:
         return False
+
+
+def _strict_components(args: argparse.Namespace) -> set[str]:
+    return {
+        name for name, weight in (
+            ("activity", args.w_activity), ("conformity", args.w_conformity),
+            ("precision", args.w_precision), ("breadth", args.w_breadth),
+            ("mdr", args.w_mdr), ("safety", args.w_safety),
+        ) if weight != 0
+    }
+
+
+def _validate_strict_recipe(args: argparse.Namespace) -> None:
+    """Fail closed unless this is the recorded, full-size incumbent recipe."""
+    if args.pool:
+        raise ValueError("Strict incumbent mode does not accept --pool; validate pools separately")
+    expected = {
+        "n_sequences": LIBRARY_SIZE, "top_k": TOP_K, "seed": DEFAULT_SEED,
+        "length": MAX_LENGTH, "blend_ratio": 3, "temperature": 1.0,
+        "sample_top_k": 50, "top_p": 0.9, "repetition_penalty": 1.3,
+        "conformity_sample": 12000, "novelty_candidates": 2000,
+        "w_activity": DEFAULT_WEIGHTS["activity"],
+        "w_conformity": DEFAULT_WEIGHTS["conformity"],
+        "w_precision": DEFAULT_WEIGHTS["precision"],
+        "w_breadth": DEFAULT_WEIGHTS["breadth"], "w_mdr": DEFAULT_WEIGHTS["mdr"],
+        "w_safety": DEFAULT_WEIGHTS["safety"],
+    }
+    changed = {name: (getattr(args, name), value) for name, value in expected.items()
+               if getattr(args, name) != value}
+    if changed:
+        raise ValueError(f"Strict mode currently validates only the default incumbent recipe: {changed}")
+    if args.checkpoint.resolve() != GENERATOR_DIR.resolve():
+        raise ValueError("Strict incumbent mode requires checkpoint/generator")
+    expected_secondary = CHECKPOINT_DIR / "generator_blend"
+    if args.blend_checkpoint is not None and args.blend_checkpoint.resolve() != expected_secondary.resolve():
+        raise ValueError("Strict incumbent mode requires checkpoint/generator_blend")
+    if args.precision_esm != "facebook/esm2_t6_8M_UR50D":
+        raise ValueError("Strict incumbent mode requires the deployed 8M precision model")
+    if args.charge_conditioned:
+        raise ValueError("Strict incumbent mode uses the primary checkpoint's default conditioning")
+    project = CHECKPOINT_DIR.parent.resolve()
+    output_dir = args.out_dir.resolve()
+    if output_dir != project and project not in output_dir.parents:
+        raise ValueError("Strict output directory must be inside the project checkout")
+    try:
+        import Levenshtein  # noqa: F401
+        import torch
+        import transformers  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(f"Strict inference dependency unavailable: {exc}") from exc
+    if not torch.cuda.is_available() and args.device.startswith("cuda"):
+        raise RuntimeError(f"Requested CUDA device is unavailable: {args.device}")
+    for directory in (GENERATOR_DIR, CHECKPOINT_DIR / "generator_blend"):
+        if not (directory / "model.pt").is_file() or not (directory / "config.json").is_file():
+            raise RuntimeError(f"Required generator artifact missing: {directory}")
+
+
+def _validate_strict_outputs(library: list[str], top: list[str], reference: set[str]) -> None:
+    from amp_challenge_2027.select import is_novel_top, is_valid_sequence
+
+    if len(library) != LIBRARY_SIZE or len(set(library)) != LIBRARY_SIZE:
+        raise RuntimeError(f"Strict library must contain {LIBRARY_SIZE} unique sequences")
+    if not all(is_valid_sequence(seq) for seq in library):
+        raise RuntimeError("Strict library contains invalid sequence(s)")
+    overlap = set(library) & reference
+    if overlap:
+        raise RuntimeError(f"Strict library has {len(overlap)} exact reference overlap(s)")
+    if len(top) != TOP_K or len(set(top)) != TOP_K:
+        raise RuntimeError(f"Strict top list must contain {TOP_K} unique sequences")
+    if not set(top).issubset(set(library)):
+        raise RuntimeError("Strict top list contains sequence(s) outside the generated library")
+    if not all(is_valid_sequence(seq) and is_novel_top(seq, reference) for seq in top):
+        raise RuntimeError("Strict top list violates sequence validity or exact novelty")
 
 
 if __name__ == "__main__":
