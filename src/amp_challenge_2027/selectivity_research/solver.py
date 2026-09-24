@@ -60,6 +60,27 @@ def _reference_conflicts(sequences: list[str], indices: np.ndarray, reference: s
     return bad
 
 
+def _baseline_is_feasible(frame, base: np.ndarray, profile: str, reference: set[str] | None) -> bool:
+    """Check the incumbent independently before trusting a MILP infeasibility."""
+    ceiling = float(profile)
+    risk = frame.iloc[base]["hemolysis_risk"].to_numpy(float)
+    if ceiling < 1.0 and (risk > ceiling).any():
+        return False
+    sequences = frame["sequence"].astype(str).tolist()
+    return (not _pairs(sequences, base, TOP_SIMILARITY_THRESHOLD)
+            and not _reference_conflicts(sequences, base, reference, TOP_SIMILARITY_THRESHOLD))
+
+
+def _incumbent_fallback(frame, base, genera, profile, reference, message, metadata):
+    if float(profile) >= 1.0 and _baseline_is_feasible(frame, base, profile, reference):
+        metadata = dict(metadata)
+        metadata["fallback"] = "incumbent_feasible_after_milp_failure"
+        return SolveResult("feasible_unproven_optimal",
+                           message + "; incumbent independently verified",
+                           base.astype(int), summarize(frame, base, genera, incumbent=base), metadata)
+    return None
+
+
 def _milp(frame, candidates: np.ndarray, genera: list[str], protocol: dict, profile: str,
           forbidden: set[int], pair_cuts: set[tuple[int, int]], *, time_limit: float,
           mip_rel_gap: float):
@@ -161,6 +182,10 @@ def solve_pool(frame, eligible: np.ndarray, genera: list[str], protocol: dict, p
                         time_limit=time_limit, mip_rel_gap=mip_rel_gap)
         if len(outcome) == 3:
             _result, last_message, last_status = outcome
+            fallback = _incumbent_fallback(frame, base, genera, profile, reference,
+                                           last_message, metadata)
+            if fallback is not None:
+                return fallback
             break
         result, status, message, selected = outcome
         last_status, last_message = status, message
@@ -187,4 +212,8 @@ def solve_pool(frame, eligible: np.ndarray, genera: list[str], protocol: dict, p
     if last_status in {"optimal", "feasible_unproven_optimal"}:
         last_status = "infeasible"
         last_message = "cut rounds exhausted before a valid top-100 was found"
+    fallback = _incumbent_fallback(frame, base, genera, profile, reference,
+                                   last_message, metadata)
+    if fallback is not None:
+        return fallback
     return SolveResult(last_status, last_message, np.array([], dtype=int), {}, metadata)
