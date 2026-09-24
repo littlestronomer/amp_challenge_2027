@@ -45,12 +45,20 @@ Git author identities remain in history. Existing starter notices are preserved.
 
 ## Branch and publication sequence
 
+The author-supplied [SSH lineage report](release/SSH_LINEAGE_REPORT.json) at
+`928e7fd41d035d9950861b37175d84405a49519a` matches all deployed weights and candidate
+CSVs, identifies original-run model copies, and confirms the baseline runtime and
+FASTA hashes. The current generator CSV contains exactly the reference sequence
+set and annotations for all 13 upstream databases. Original training-time data
+and split linkage remains unverified and is explicitly disclosed.
+
 GitHub was checked on 2026-09-25: repository private; default branch `main`.
 The release candidate is the existing feature branch, proposed for review into
 `main`. Until that promotion, ordinary default-branch clones do not identify
 this validated candidate. Use the explicit branch or baseline commit for review.
 
-1. Run the CPU lineage collector on SSH and resolve/report the evidence gaps.
+1. SSH collection is complete as reported; retain the historical-link limitations
+   unless contemporaneous training records are recovered.
 2. Supply author affiliation and review source attribution and release contents.
 3. Review the release PR before promoting the candidate to the default branch.
 4. Publish the reviewed repository and verify unauthenticated access to the

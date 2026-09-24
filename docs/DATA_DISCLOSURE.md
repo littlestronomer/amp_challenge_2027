@@ -19,10 +19,11 @@ candidate CSV hashes; [training provenance](TRAINING_PROVENANCE.md) distinguishe
 those identities from missing historical training links. Current primary-source
 terms and acknowledgements are in [third-party notices](THIRD_PARTY_NOTICES.md).
 
-MarLys version 3 lists 13 upstream databases, including DRAMP and DBAASP. Their
-membership in the actual training subset needs reconciliation using the CSV's
-source annotations. “Development-only DRAMP” below means the separate downloads,
-not an assertion that the generator has no indirectly DRAMP-derived sequences.
+The author-supplied SSH lineage report confirms all 13 MarLys upstream database
+names occur in the current generator CSV's source annotations, including DRAMP
+and DBAASP. These overlapping annotations are recorded in
+[SSH_LINEAGE_REPORT.json](release/SSH_LINEAGE_REPORT.json). “Development-only
+DRAMP” below means the separate downloads, not absence of indirect DRAMP ancestry.
 
 ## Final-stack training data
 
@@ -33,9 +34,15 @@ the actual SSH snapshots and source records before signing off the full disclosu
 | artifact trained | data | source & license | retrieved |
 |---|---|---|---|
 | Generators (`checkpoint/generator`, `checkpoint/generator_blend`) | 39,448 curated peptides (`data/processed/generative.csv`), standard AAs, length 8–50, deduplicated | **MarLys** (Mendeley `w4hb5grjwb`), CC-0, per the AMP Challenge starter data | provided with the competition repository |
-| Panel ranker (`checkpoint/reward/classifier_panel.pt`) | 69,461 strain-level MIC rows → 39,216 per-genus rows → 13,485 labeled sequences (`data/processed/activity_labels_full.csv`) | **DBAASP v4** via public REST API (`dbaasp.org/peptides`, 25,069 peptide cards), API data-usage policy; cite Pirtskhalava et al., *NAR* 49(D1):D288–D297 (2021) | 2026-08-28 |
-| Binary activity head (`checkpoint/reward/classifier.pt`) | 1,423 binarized labels (legacy set) | same DBAASP lineage | 2026-08 (legacy build) |
+| Panel ranker (`checkpoint/reward/classifier_panel.pt`) | Current candidate CSV: 39,216 rows, 11,402 unique sequences before loader filtering/aggregation (`data/processed/activity_labels_full.csv`) | **DBAASP v4** via public REST API; historical notes report 25,069 peptide cards and 69,461 strain-level MIC rows, not independently recounted here. Cite Pirtskhalava et al., *NAR* 49(D1):D288–D297 (2021) | 2026-08-28 (historical declaration) |
+| Binary activity head (`checkpoint/reward/classifier.pt`) | Current candidate CSV: 2,009 rows, 1,423 unique sequences (`data/processed/activity_labels.csv`), before loader filtering | same declared DBAASP lineage | 2026-08 (legacy build) |
 | Hemolysis head (`checkpoint/reward_hemo/classifier.pt`) | 4,752 labels from erythrocyte (concentration, lysis-band) rows | **DBAASP v4** (as above) | 2026-08-29 |
+
+The 2026-09-25 SSH report supersedes the earlier panel count of 13,485 for this
+hash-pinned CSV. Unique sequences, CSV rows and records admitted by the training
+loader are different quantities. The binary loader retains recognized-label rows;
+the panel loader filters labels/organisms/sequences and aggregates by sequence.
+These CSV summaries do not establish original training population or split sizes.
 
 The reference/evaluation set `data/antibacterial.fasta` (39,448 sequences)
 ships with the competition tooling and is used only for filtering, novelty

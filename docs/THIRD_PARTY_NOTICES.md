@@ -14,10 +14,10 @@ data terms. Existing upstream copyright notices remain in LICENSE and Git histor
 | ESM-2 | Meta pretrained protein language models: 35M classifier backbones, 8M precision proxy, 650M historical evaluation | [35M model card](https://huggingface.co/facebook/esm2_t12_35M_UR50D) and [upstream license](https://github.com/facebookresearch/esm/blob/main/LICENSE) identify MIT. We download these pretrained components; their pretraining data are external to our own training snapshots. Historical exact backbone revisions remain unverified. |
 
 The MarLys record names AMPDB, dbAMP, DRAMP, CAMP, DBAASP, SATPdb, APD, CyBase,
-InverPep, DADP, CancerPPD, BaAMPs and ParaPep as its upstream databases. This is an
-aggregate-source declaration, not evidence that every upstream source occurs in
-our 39,448-sequence subset. The SSH collector reports `source_dbs` values when
-available; missing values must not be interpreted as absence of an upstream source.
+InverPep, DADP, CancerPPD, BaAMPs and ParaPep as its upstream databases. The author
+supplied an SSH report confirming that all 13 names occur in `source_dbs` for the
+current 39,448-sequence CSV. Counts overlap across databases and do not independently
+verify each source attribution. See [the recorded report](release/SSH_LINEAGE_REPORT.json).
 
 The old downloader's citation string conflates DRAMP 2.0 (2019) with DRAMP 3.0.
 Historical manifests remain unchanged for integrity; the citation is corrected

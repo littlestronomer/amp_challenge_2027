@@ -1,0 +1,471 @@
+{
+  "kind": "author_reported_ssh_lineage_v1",
+  "reported_date": "2026-09-25",
+  "audit_commit": "928e7fd41d035d9950861b37175d84405a49519a",
+  "report_path": "sweep_results/training-lineage-v1/REPORT.md",
+  "evidence_origin": "Parsed from author-supplied SSH report; files were not independently accessed on this workstation",
+  "historical_training_provenance_verified": false,
+  "deployed_weights_match_release_reported": true,
+  "runtime_matches_baseline_reported": true,
+  "fresh_clone_outputs_match_baseline_reported": true,
+  "datasets": [
+    {
+      "path": "data/processed/generative.csv",
+      "status": "match",
+      "sha256": "5c946e665826169640485fff852a4cc24042fef0551699899324d3beb1b6b49b",
+      "summary": {
+        "columns": [
+          "sequence",
+          "source_id",
+          "charge",
+          "activity",
+          "source_dbs"
+        ],
+        "declared_source_counts": {
+          "source_dbs": {
+            "AMPDB": 1270,
+            "APD": 2041,
+            "BaAMPs": 182,
+            "CAMP": 11898,
+            "CancerPPD": 396,
+            "CyBase": 169,
+            "DADP": 601,
+            "DBAASP": 14496,
+            "DRAMP": 18395,
+            "InverPep": 424,
+            "ParaPep": 124,
+            "SATPdb": 9740,
+            "dbAMP": 20933
+          }
+        },
+        "rows": 39448,
+        "same_sequence_set_as_reference": true,
+        "sequence_set_sha256": "0106c0f4d95b3ea14785a6201983812045fdc23a3bca0c184d889feef7c4a534",
+        "unique_sequences": 39448
+      }
+    },
+    {
+      "path": "data/processed/activity_labels.csv",
+      "status": "match",
+      "sha256": "812bbd0bf3c00a49f50510d058a45be006363b6366529873e7375ecf7cdcef2d",
+      "summary": {
+        "columns": [
+          "sequence",
+          "label",
+          "organism"
+        ],
+        "declared_source_counts": {},
+        "rows": 2009,
+        "same_sequence_set_as_reference": false,
+        "sequence_set_sha256": "67dc7a249a9829ac179c86b9f09ab5ee5d2f38d40592b0b9cc87e48bf082a946",
+        "unique_sequences": 1423
+      }
+    },
+    {
+      "path": "data/processed/activity_labels_full.csv",
+      "status": "match",
+      "sha256": "5ba1c77d27d79aee451350cdf6a5c1b2c4b3554350fa226bc4a75e161935a748",
+      "summary": {
+        "columns": [
+          "sequence",
+          "organism",
+          "mic_um",
+          "band",
+          "label"
+        ],
+        "declared_source_counts": {},
+        "rows": 39216,
+        "same_sequence_set_as_reference": false,
+        "sequence_set_sha256": "43f9090fbe6829ccc1985e494fb68661931c5ec26bc41989fc72f798c84ae55d",
+        "unique_sequences": 11402
+      }
+    },
+    {
+      "path": "data/processed/hemolysis_labels.csv",
+      "status": "match",
+      "sha256": "fb654eddca32116a8fbdcff41803c8c2044bef10df3af68f6e5d7d784b312c7c",
+      "summary": {
+        "columns": [
+          "sequence",
+          "hc50_um",
+          "label"
+        ],
+        "declared_source_counts": {},
+        "rows": 4752,
+        "same_sequence_set_as_reference": false,
+        "sequence_set_sha256": "db9ef8277e41aba5b830dde1accbe11a29428186b4b0f7aa57a26e79bdd85da3",
+        "unique_sequences": 4752
+      }
+    }
+  ],
+  "byte_identical_model_copies": [
+    {
+      "path": "checkpoint/generator-e100_p10-cond/model.pt",
+      "matches_deployed": "generator_blend"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed44/model.pt",
+      "matches_deployed": "generator"
+    },
+    {
+      "path": "checkpoint/reward_binary_frozen/classifier.pt",
+      "matches_deployed": "activity"
+    },
+    {
+      "path": "checkpoint/reward_binary_frozen/member2/classifier.pt",
+      "matches_deployed": "activity"
+    },
+    {
+      "path": "checkpoint/reward_hemo_frozen/classifier.pt",
+      "matches_deployed": "hemolysis"
+    },
+    {
+      "path": "checkpoint/reward_hemo_frozen/member0/classifier.pt",
+      "matches_deployed": "hemolysis"
+    },
+    {
+      "path": "checkpoint/reward_panel_frozen/classifier_panel.pt",
+      "matches_deployed": "panel"
+    },
+    {
+      "path": "checkpoint/reward_panel_frozen/member1/classifier_panel.pt",
+      "matches_deployed": "panel"
+    }
+  ],
+  "inventoried_records": [
+    {
+      "path": "data/raw/dbaasp/activity.csv",
+      "sha256": "1a8bbbd92dc9ce82030f866c9ba1c28d452704475750420554377cce05abe90a"
+    },
+    {
+      "path": "data/raw/dbaasp/hemolysis_raw.csv",
+      "sha256": "b0d51e360169cffc1f9017bb718766c3d55b915185ae6e1a6c880be8736a5678"
+    },
+    {
+      "path": "data/raw/dbaasp/peptides.csv",
+      "sha256": "0b68c8945a63eeee3775a701b25522b0a20f9f0837864f8c08a44cf3960e053c"
+    },
+    {
+      "path": "data/raw/dramp/anti_gram_negative.fasta",
+      "sha256": "3c1b5d0fb323baf6d6c0d8d8164d8b35b3bbc41c9296b0665894f99fb4f12c41"
+    },
+    {
+      "path": "data/raw/dramp/anti_gram_positive.fasta",
+      "sha256": "348cada15ae82f593af683ee395b35bc61df81dddfcc7041f8118838bacee8e0"
+    },
+    {
+      "path": "data/raw/dramp/antibacterial_amps.fasta",
+      "sha256": "a0d484eb6176e123298d19d06f23ccc6398a1f5c75d169cccbbf7590a6e6c835"
+    },
+    {
+      "path": "data/raw/dramp/general_amps.fasta",
+      "sha256": "5915e91b3501c41a914a05403dfd2a435af59116ffb738a8423d34995a2b9c26"
+    },
+    {
+      "path": "data/raw/sources.json",
+      "sha256": "9608615931ebda22f76dfc8c5b37835b91967b54588843016eabf605aa82229c"
+    },
+    {
+      "path": "data/processed/activity_labels.csv",
+      "sha256": "812bbd0bf3c00a49f50510d058a45be006363b6366529873e7375ecf7cdcef2d"
+    },
+    {
+      "path": "data/processed/activity_labels_full.csv",
+      "sha256": "5ba1c77d27d79aee451350cdf6a5c1b2c4b3554350fa226bc4a75e161935a748"
+    },
+    {
+      "path": "data/processed/activity_labels_gram.csv",
+      "sha256": "5935eac91f72a211ce181e1586b59f70075195a87cd71dc7aee3f338208acc2e"
+    },
+    {
+      "path": "data/processed/amp_vs_random.csv",
+      "sha256": "07d329ff9eecb74639bdddea01fb0f8a793081e38d3e4b4cb3b475bc8d65c220"
+    },
+    {
+      "path": "data/processed/generative.csv",
+      "sha256": "5c946e665826169640485fff852a4cc24042fef0551699899324d3beb1b6b49b"
+    },
+    {
+      "path": "data/processed/generative_combined.csv",
+      "sha256": "e21e53220a5e319065315ed4a6e8359510348626ab5d51cfaa7431ff8d840f46"
+    },
+    {
+      "path": "data/processed/hemolysis_labels.csv",
+      "sha256": "fb654eddca32116a8fbdcff41803c8c2044bef10df3af68f6e5d7d784b312c7c"
+    },
+    {
+      "path": "data/processed/rebuild/generative_expanded.csv",
+      "sha256": "fa99fed2de51ac25cfbb78412ee3ced58972ba2a5a7e8fed57a0fed9d2bab58d"
+    },
+    {
+      "path": "data/processed/rebuild/generative_expanded_superset.csv",
+      "sha256": "b30dd1e5a352f99b8ef9dcab63927b3961e50ee522323839186da8d41655bd68"
+    },
+    {
+      "path": "data/processed/rebuild/hemolysis.csv",
+      "sha256": "b0bd7690c82dd31e1d8eb66bf3282aa45d88d6abe4bb913a2ed61f89d58e0d30"
+    },
+    {
+      "path": "data/processed/rebuild/mic.csv",
+      "sha256": "f82b377bdeabb1c0a6340d2dd0616f15a01b00f0041bb67d870ec59599a3a898"
+    },
+    {
+      "path": "checkpoint/flow_matching/config.json",
+      "sha256": "77b7857e6d94b16a63d2cd3f2076f3dcc5f7063d51e7bba87ef2c3ad02e45e7e"
+    },
+    {
+      "path": "checkpoint/generator/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-4L-128H/config.json",
+      "sha256": "278cbd65d730baa49114b961f4aca41bc9e14db1bb1519f4aa67ff0a7548fc93"
+    },
+    {
+      "path": "checkpoint/generator-attnres/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-attnres-v2/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-attnres-v2-replica/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-attnres-v3/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-dense/config.json",
+      "sha256": "351528f7a74fb7091704370da1760689497ba7e98d23cad2f40381cdf544a852"
+    },
+    {
+      "path": "checkpoint/generator-dense-v2/config.json",
+      "sha256": "351528f7a74fb7091704370da1760689497ba7e98d23cad2f40381cdf544a852"
+    },
+    {
+      "path": "checkpoint/generator-dense-v3/config.json",
+      "sha256": "351528f7a74fb7091704370da1760689497ba7e98d23cad2f40381cdf544a852"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-cond/config.json",
+      "sha256": "5b5fafd03b107594b8067b81456f26ea00eb14886808c4cb2827b1a8c7f9256f"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-expanded/config.json",
+      "sha256": "1255552f437ac727d1d048b8f406c9ce05892c8d869f4ecb7d15701868dcb26b"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed42/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed43/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed44/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed45/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed46/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed47/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed48/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed49/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed50/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-e100_p10-seed51/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator-seed42/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    },
+    {
+      "path": "checkpoint/generator_blend/config.json",
+      "sha256": "5b5fafd03b107594b8067b81456f26ea00eb14886808c4cb2827b1a8c7f9256f"
+    },
+    {
+      "path": "checkpoint/reward/classifier_config.json",
+      "sha256": "b13e19dda04b7d13e78fd885ce777252f832079ccaa79c091d164557ad51419d"
+    },
+    {
+      "path": "checkpoint/reward/classifier_panel_config.json",
+      "sha256": "d2618e05e9db6e2f90d0cd0bb860d02f6f13ed7e19f404f1aa9fe9883173c08c"
+    },
+    {
+      "path": "checkpoint/reward/config.json",
+      "sha256": "3c1df49d9736727bab005b45cee4aee0852095885c268431b10de0b775634919"
+    },
+    {
+      "path": "checkpoint/reward/member0/config.json",
+      "sha256": "b67d4ec36b3db0374ba1df205b8020e5724e925b04ba4221d62f41c7976f1bbb"
+    },
+    {
+      "path": "checkpoint/reward/member1/config.json",
+      "sha256": "b67d4ec36b3db0374ba1df205b8020e5724e925b04ba4221d62f41c7976f1bbb"
+    },
+    {
+      "path": "checkpoint/reward/member2/config.json",
+      "sha256": "b67d4ec36b3db0374ba1df205b8020e5724e925b04ba4221d62f41c7976f1bbb"
+    },
+    {
+      "path": "checkpoint/reward_binary_frozen/classifier_config.json",
+      "sha256": "09f626811ab53e5b121d4a9d1b7cfc6dd5d444fc913a1636c67d4b217315d930"
+    },
+    {
+      "path": "checkpoint/reward_binary_frozen/config.json",
+      "sha256": "09f626811ab53e5b121d4a9d1b7cfc6dd5d444fc913a1636c67d4b217315d930"
+    },
+    {
+      "path": "checkpoint/reward_binary_frozen/member0/config.json",
+      "sha256": "acab29207bb8428e5bd241a5db93647ab441ffc436cd892d2cf55061acb7b781"
+    },
+    {
+      "path": "checkpoint/reward_binary_frozen/member1/config.json",
+      "sha256": "acab29207bb8428e5bd241a5db93647ab441ffc436cd892d2cf55061acb7b781"
+    },
+    {
+      "path": "checkpoint/reward_binary_frozen/member2/config.json",
+      "sha256": "acab29207bb8428e5bd241a5db93647ab441ffc436cd892d2cf55061acb7b781"
+    },
+    {
+      "path": "checkpoint/reward_clustered/config.json",
+      "sha256": "80536d0ac76fc8d60edb861cb79be2c05e5829550b0e89e00b61df25e8fbf963"
+    },
+    {
+      "path": "checkpoint/reward_clustered/member0/config.json",
+      "sha256": "b67d4ec36b3db0374ba1df205b8020e5724e925b04ba4221d62f41c7976f1bbb"
+    },
+    {
+      "path": "checkpoint/reward_clustered/member1/config.json",
+      "sha256": "b67d4ec36b3db0374ba1df205b8020e5724e925b04ba4221d62f41c7976f1bbb"
+    },
+    {
+      "path": "checkpoint/reward_clustered/member2/config.json",
+      "sha256": "b67d4ec36b3db0374ba1df205b8020e5724e925b04ba4221d62f41c7976f1bbb"
+    },
+    {
+      "path": "checkpoint/reward_hemo/classifier_config.json",
+      "sha256": "5dc1a999d17eb1ee88ea5f1d9b145cd399a0c5e37482186d5023b46776a16b84"
+    },
+    {
+      "path": "checkpoint/reward_hemo/config.json",
+      "sha256": "04ef32f2bc18a0ea347375d4b379d66f1613b77ff887e2349e8407c59e17ac21"
+    },
+    {
+      "path": "checkpoint/reward_hemo/member0/config.json",
+      "sha256": "6bee777607bda11854a86d5c085d5ac9ba73d4716be78ad53f1688c53b5ab567"
+    },
+    {
+      "path": "checkpoint/reward_hemo/member1/config.json",
+      "sha256": "6bee777607bda11854a86d5c085d5ac9ba73d4716be78ad53f1688c53b5ab567"
+    },
+    {
+      "path": "checkpoint/reward_hemo/member2/config.json",
+      "sha256": "6bee777607bda11854a86d5c085d5ac9ba73d4716be78ad53f1688c53b5ab567"
+    },
+    {
+      "path": "checkpoint/reward_hemo_frozen/classifier_config.json",
+      "sha256": "b5c923689ce9e1c0a5722ced68e029a33543c83e748047510693f7b73e69a197"
+    },
+    {
+      "path": "checkpoint/reward_hemo_frozen/config.json",
+      "sha256": "b5c923689ce9e1c0a5722ced68e029a33543c83e748047510693f7b73e69a197"
+    },
+    {
+      "path": "checkpoint/reward_hemo_frozen/member0/config.json",
+      "sha256": "acab29207bb8428e5bd241a5db93647ab441ffc436cd892d2cf55061acb7b781"
+    },
+    {
+      "path": "checkpoint/reward_hemo_frozen/member1/config.json",
+      "sha256": "acab29207bb8428e5bd241a5db93647ab441ffc436cd892d2cf55061acb7b781"
+    },
+    {
+      "path": "checkpoint/reward_hemo_frozen/member2/config.json",
+      "sha256": "acab29207bb8428e5bd241a5db93647ab441ffc436cd892d2cf55061acb7b781"
+    },
+    {
+      "path": "checkpoint/reward_panel_frozen/classifier_panel_config.json",
+      "sha256": "19d940c2733a6c48f24fa1465293c14c6bcc55e7c5c3d84d98c90f9318c59eb4"
+    },
+    {
+      "path": "checkpoint/reward_panel_frozen/config.json",
+      "sha256": "19d940c2733a6c48f24fa1465293c14c6bcc55e7c5c3d84d98c90f9318c59eb4"
+    },
+    {
+      "path": "checkpoint/reward_panel_frozen/member0/config.json",
+      "sha256": "1027cf3d25567b1870efa20ad857695bbc3fe936cfa41b12458d9242a66e6c3a"
+    },
+    {
+      "path": "checkpoint/reward_panel_frozen/member1/config.json",
+      "sha256": "1027cf3d25567b1870efa20ad857695bbc3fe936cfa41b12458d9242a66e6c3a"
+    },
+    {
+      "path": "checkpoint/reward_panel_frozen/member2/config.json",
+      "sha256": "1027cf3d25567b1870efa20ad857695bbc3fe936cfa41b12458d9242a66e6c3a"
+    },
+    {
+      "path": "checkpoint/sweeps/block-6x384/config.json",
+      "sha256": "9a1e96a505701893776909a72fb43140c7fc8c7715ae70c40e7f9f51ccd73075"
+    },
+    {
+      "path": "checkpoint/sweeps/block-6x384-converged/config.json",
+      "sha256": "9a1e96a505701893776909a72fb43140c7fc8c7715ae70c40e7f9f51ccd73075"
+    },
+    {
+      "path": "checkpoint/sweeps/block-8x336/config.json",
+      "sha256": "5cc881f24f859ab0a9a1730aa220b46100b2515fd5fe97a09ed795094fd2871d"
+    },
+    {
+      "path": "checkpoint/sweeps/block-8x336-converged/config.json",
+      "sha256": "5cc881f24f859ab0a9a1730aa220b46100b2515fd5fe97a09ed795094fd2871d"
+    },
+    {
+      "path": "checkpoint/sweeps/standard-6x384/config.json",
+      "sha256": "7533d7517debbddf9f4f3a01799117aadc7ecdcb55475ef4287f8cd7406a6b0e"
+    },
+    {
+      "path": "checkpoint/sweeps/standard-6x384-converged/config.json",
+      "sha256": "7533d7517debbddf9f4f3a01799117aadc7ecdcb55475ef4287f8cd7406a6b0e"
+    },
+    {
+      "path": "checkpoint/sweeps/standard-8x336/config.json",
+      "sha256": "c685e35b0df8eac1050b45ac279556db355637dca591eab8481bb84dea7bc99a"
+    },
+    {
+      "path": "checkpoint/sweeps/standard-8x336-converged/config.json",
+      "sha256": "c685e35b0df8eac1050b45ac279556db355637dca591eab8481bb84dea7bc99a"
+    },
+    {
+      "path": "checkpoint/v2-replica/config.json",
+      "sha256": "2d815a407a8e799f315bc4198d12aa301d63fad932c157415a1d04900fb4427d"
+    }
+  ],
+  "limitations": [
+    "Matching current snapshots and model copies do not establish historical training-time input linkage.",
+    "No original split/training manifest appears in the reported inventory; the collector does not search every filename or location.",
+    "Source annotations count memberships and can overlap; they are not independent database validations.",
+    "CSV unique-sequence counts are before training-loader filtering and aggregation."
+  ]
+}

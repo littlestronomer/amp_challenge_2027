@@ -37,11 +37,10 @@ See the organizers' current rules when submitting; no publication guarantee is i
 - Generator and charge-conditioned generator: declared competition MarLys corpus;
   `data/processed/generative.csv`. Both checkpoint configs match the documented
   six-layer, 384-unit decoder; the secondary config has charge conditioning.
-- Binary activity: declared legacy DBAASP-derived 1,423 labels. Candidate `activity_labels.csv` is pinned by the provisional reconstruction protocol; original training-time hash and split remain unverified.
-- Panel classifier: declared DBAASP-derived `activity_labels_full.csv`, 13,485
-  labelled sequences after aggregation. Current snapshot hash matches the provisional reconstruction protocol; original training-time linkage remains needed.
+- Binary activity: candidate DBAASP-derived CSV with 2,009 rows and 1,423 unique sequences. Candidate `activity_labels.csv` is pinned by the provisional reconstruction protocol; original training-time hash and split remain unverified.
+- Panel classifier: declared DBAASP-derived `activity_labels_full.csv`, 39,216 rows and 11,402 unique sequences before loader filtering/aggregation. Current snapshot hash matches the provisional reconstruction protocol; original training-time linkage remains needed.
 - Hemolysis classifier: declared 4,752 DBAASP-derived labels; candidate `hemolysis_labels.csv` hash is pinned and reported on SSH; original training-time linkage remains unresolved.
-- Separate DRAMP downloads: declared development experiments. MarLys may supply indirect DRAMP-derived sequences; actual subset source annotations still require inspection.
+- Separate DRAMP downloads: declared development experiments. MarLys may supply indirect DRAMP-derived sequences; the supplied report confirms all 13 upstream names, including DRAMP, in the candidate CSV annotations.
 - ESM backbones: pretrained public components; include model identifiers/revisions
   and their licenses in the final disclosure.
 
@@ -75,8 +74,9 @@ does not upload data, publish the repository, or certify biological performance.
 
 The three predictor configs now match their preserved SSH originals and are
 committed. Default fresh-clone validation and exact FASTA comparison passed as
-reported by the author. Continue with the CPU collector in
-[TRAINING_PROVENANCE.md](TRAINING_PROVENANCE.md); see the reviewed baseline and
+reported by the author. The completed SSH lineage report confirms all candidate CSV hashes, original-run
+model copies and source annotations; historical training input/split linkage is
+still unverified. See [TRAINING_PROVENANCE.md](TRAINING_PROVENANCE.md) and the baseline and
 publication sequence in [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md).
 
 ## Final release verification (after resolving artifact gaps)
