@@ -51,6 +51,10 @@ The supplied SSH download manifest lists four DRAMP files only. The source
 fetcher records DRAMP downloads there; the list is not an exhaustive training
 inventory. The audit checks their actual hashes/sizes and inventories the
 processed training-file hashes, without claiming they identify checkpoint inputs.
+DRAMP registry keys such as `dramp-general/general_amps.fasta` are logical source
+IDs; the downloader stores those files under `data/raw/dramp/`. The audit now
+reports both the registry key and local path. Audits from commit `0994940` checked
+the logical ID as a path, so their four missing-DRAMP findings require a rerun.
 
 `docs/DATA_DISCLOSURE.md` is a lineage declaration, not proof that each checkpoint
 used exactly those files. Do not relicense downloaded public databases under the

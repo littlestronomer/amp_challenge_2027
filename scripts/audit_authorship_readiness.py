@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 from experiment_utils import REPO_ROOT, mark_files, prepare_run, sha256, write_json
+from fetch_data import DRAMP_DIRECT_SOURCES
 
 RELEASE_FILES = [
     "LICENSE",
@@ -56,9 +57,17 @@ def source_inventory(root: Path) -> dict:
     except (ValueError, OSError) as exc:
         return {"status": "invalid", "reason": str(exc), "entries": []}
     entries = []
+    # fetch_dramp stores files in raw/dramp, but its registry keys are logical
+    # source IDs (e.g. dramp-general/general_amps.fasta), not relative paths.
+    download_paths = {
+        f"{source}/{info['dest']}": Path("dramp") / info["dest"]
+        for source, info in DRAMP_DIRECT_SOURCES.items()
+    }
     for name, declared in sorted(records.items()):
         row = {"path": name, "status": "invalid", "declared": declared}
-        path = (raw / name).resolve()
+        relative = download_paths.get(name, Path(name))
+        row["local_path"] = str(Path("data/raw") / relative)
+        path = (raw / relative).resolve()
         if Path(name).is_absolute() or not path.is_relative_to(raw):
             row["reason"] = "Source path escapes data/raw"
         elif not isinstance(declared, dict) or not re.fullmatch(
@@ -201,7 +210,7 @@ def run(root: Path, out: Path, github_repo: str | None = None) -> dict:
               "not training use, license approval, or checkpoint lineage.", "",
               f"Manifest status: {sources['status']}.", ""]
     lines += [
-        f"- `{r['path']}`: {r['status']}"
+        f"- `{r['path']}` → `{r['local_path']}`: {r['status']}"
         + (f"; actual SHA-256 `{r['actual_sha256']}`" if 'actual_sha256' in r else "")
         + (f"; {r['reason']}" if 'reason' in r else "")
         for r in sources["entries"]

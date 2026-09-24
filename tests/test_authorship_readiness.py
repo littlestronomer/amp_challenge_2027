@@ -93,3 +93,46 @@ def test_source_inventory_handles_missing_and_invalid_manifest(tmp_path):
     for content in ("not json", "[]"):
         (raw / "sources.json").write_text(content)
         assert source_inventory(tmp_path)["status"] == "invalid"
+
+
+def test_source_inventory_resolves_real_downloader_registry(tmp_path, monkeypatch):
+    import fetch_data
+
+    raw = tmp_path / "data/raw"
+    content = b">record\nACDEFGHI\n"
+
+    def fake_download(url, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+        return dest
+
+    monkeypatch.setattr(fetch_data, "_download", fake_download)
+    for source, info in fetch_data.DRAMP_DIRECT_SOURCES.items():
+        if not info["dest"].endswith(".fasta"):
+            continue
+        assert fetch_data.fetch_dramp(
+            source, out_dir=raw / "dramp", registry_path=raw / "sources.json"
+        ) == raw / "dramp" / info["dest"]
+    result = source_inventory(tmp_path)
+    assert len(result["entries"]) == 4
+    assert all(row["status"] == "verified" for row in result["entries"])
+    assert all(row["local_path"].startswith("data/raw/dramp/") for row in result["entries"])
+
+    # A valid decoy at the logical ID path must not hide corruption at the
+    # actual downloader destination.
+    decoy = raw / "dramp-general/general_amps.fasta"
+    decoy.parent.mkdir()
+    decoy.write_bytes(content)
+    actual = raw / "dramp/general_amps.fasta"
+    actual.write_bytes(b"tampered")
+    rows = {r["path"]: r for r in source_inventory(tmp_path)["entries"]}
+    assert rows["dramp-general/general_amps.fasta"]["status"] == "mismatch"
+
+    actual.unlink()
+    rows = {r["path"]: r for r in source_inventory(tmp_path)["entries"]}
+    assert rows["dramp-general/general_amps.fasta"]["status"] == "missing"
+    outside = tmp_path / "outside.fasta"
+    outside.write_bytes(content)
+    actual.symlink_to(outside)
+    rows = {r["path"]: r for r in source_inventory(tmp_path)["entries"]}
+    assert rows["dramp-general/general_amps.fasta"]["status"] == "invalid"
