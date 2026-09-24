@@ -1,7 +1,8 @@
 # littlestronomer: release and authorship readiness
 
 Audit date: 2026-09-25. Author: Göktürk Batın Dervişoğlu;
-correspondence: dervisoglu21@itu.edu.tr. Affiliation has not been supplied.
+correspondence: dervisoglu21@itu.edu.tr. Affiliation: Istanbul Technical University
+(supplied by the author on 2026-09-25).
 The author confirmed on 2026-09-24 that no private data were used, but could
 not confirm that the named public datasets are the complete source inventory.
 
@@ -24,7 +25,7 @@ See the organizers' current rules when submitting; no publication guarantee is i
 |---|---|---|
 | Public repository | Authenticated GitHub lookup on 2026-09-25 returned `isPrivate: true` | Review release contents, then explicitly approve public visibility before final submission. No visibility change was made. |
 | Release branch | GitHub default is `main`; current work is `feat/nway-blend-multiaxis-conditioning` | Validate and designate the branch/commit delivered to organizers; default-clone behavior matters. |
-| Author and method documentation | Identity file, abstract, data disclosure, README | Confirm name spelling/affiliation and any additional contributors before submission. |
+| Author and method documentation | Identity file, abstract, data disclosure, README; author supplied Istanbul Technical University affiliation | Review the final author list before submission. |
 | Permissive code license | BSD-3-Clause present, retaining upstream copyright | Preserve third-party notices; source data rights are separate from code licensing. |
 | Weights | Both generators, activity/panel/hemolysis weights are Git-tracked | SSH audit confirms every listed weight/config matches HEAD; hashes are preserved in release/BASELINE.json. |
 | Predictor metadata | Three per-head configs transcribed from the author's SSH output; inference fields match the registry for the actual committed checkpoint hashes | SSH backup and semantic comparison succeeded; all three files match the originals. Historical `val_auroc` values are retained as supplied, not independently revalidated. |

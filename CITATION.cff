@@ -6,6 +6,7 @@ authors:
   - family-names: "Dervişoğlu"
     given-names: "Göktürk Batın"
     email: "dervisoglu21@itu.edu.tr"
+    affiliation: "Istanbul Technical University"
 repository-code: "https://github.com/littlestronomer/amp_challenge_2027"
 license: BSD-3-Clause
 abstract: >-

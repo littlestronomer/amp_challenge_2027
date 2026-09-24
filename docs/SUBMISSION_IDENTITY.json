@@ -6,11 +6,11 @@
       "name": "Göktürk Batın Dervişoğlu",
       "email": "dervisoglu21@itu.edu.tr",
       "corresponding_author": true,
-      "affiliation": null,
+      "affiliation": "Istanbul Technical University",
       "orcid": null
     }
   ],
-  "affiliation_status": "Not supplied; do not infer from email domain",
+  "affiliation_status": "Istanbul Technical University, supplied by the author on 2026-09-25",
   "nonpublic_training_data_status": "Author confirmed on 2026-09-24 that no private data were used",
   "public_dataset_inventory_status": "Author-reported SSH collection inventories the candidate generator CSV source annotations (13 upstream databases), four candidate CSV snapshots and matching original-run model copies; exhaustive training-source use and historical input/split links remain unverified",
   "organizer_authorship_confirmation": null

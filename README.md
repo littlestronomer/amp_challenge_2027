@@ -3,6 +3,7 @@
 > International competition for generative AI in antimicrobial peptide design.
 
 **Submission: littlestronomer — Göktürk Batın Dervişoğlu**
+— Istanbul Technical University
 ([dervisoglu21@itu.edu.tr](mailto:dervisoglu21@itu.edu.tr)).
 See the [method abstract](docs/ABSTRACT.md),
 [training-data disclosure](docs/DATA_DISCLOSURE.md), and

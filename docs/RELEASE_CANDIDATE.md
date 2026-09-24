@@ -1,8 +1,8 @@
 # Release candidate: littlestronomer
 
 Author: Göktürk Batın Dervişoğlu. Correspondence: dervisoglu21@itu.edu.tr.
-Affiliation remains awaiting the author's answer; no institution is inferred
-from the email domain. Starter contributors retain their credit and copyright;
+Affiliation: Istanbul Technical University, supplied by the author on 2026-09-25.
+Starter contributors retain their credit and copyright;
 Git commit authorship alone is not a proposed scientific author list.
 
 ## Validated inference baseline
@@ -59,7 +59,7 @@ this validated candidate. Use the explicit branch or baseline commit for review.
 
 1. SSH collection is complete as reported; retain the historical-link limitations
    unless contemporaneous training records are recovered.
-2. Supply author affiliation and review source attribution and release contents.
+2. Author affiliation is supplied; review source attribution and release contents.
 3. Review the release PR before promoting the candidate to the default branch.
 4. Publish the reviewed repository and verify unauthenticated access to the
    exact release branch/weights. Visibility has not been changed by preparation.
