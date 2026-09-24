@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use this research software, cite the repository and its underlying data sources."
+title: "littlestronomer: autoregressive peptide generation for AMP Challenge 2027"
+type: software
+authors:
+  - family-names: "Dervişoğlu"
+    given-names: "Göktürk Batın"
+    email: "dervisoglu21@itu.edu.tr"
+repository-code: "https://github.com/littlestronomer/amp_challenge_2027"
+license: BSD-3-Clause
+abstract: >-
+  Research software for autoregressive peptide generation and surrogate-based
+  selection. Predicted antimicrobial activity and hemolysis scores are not
+  experimental validation. Source attribution and provenance limitations are
+  documented in the repository.

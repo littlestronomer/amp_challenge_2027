@@ -1,0 +1,78 @@
+{
+  "kind": "training_lineage_declarations_v1",
+  "historical_training_provenance_verified": false,
+  "models": [
+    {
+      "id": "generator",
+      "artifact": "checkpoint/generator/model.pt",
+      "artifact_sha256": "da897866d7331261beb0023c972f1d4a22c345ca29e9a9bc118d49b8d36346f1",
+      "candidate_data": "data/processed/generative.csv",
+      "candidate_data_sha256": "5c946e665826169640485fff852a4cc24042fef0551699899324d3beb1b6b49b",
+      "data_hash_basis": "Author-supplied SSH inventory on 2026-09-25",
+      "declared_source": "Competition reference / MarLys aggregate",
+      "original_split_verified": false,
+      "training_link_status": "historical_declaration_only",
+      "original_run": null
+    },
+    {
+      "id": "generator_blend",
+      "artifact": "checkpoint/generator_blend/model.pt",
+      "artifact_sha256": "f7f49c99e7ee676101e904113b4aae5f5eadcbd7d0a20bcc94314ea57a1aa0b5",
+      "candidate_data": "data/processed/generative.csv",
+      "candidate_data_sha256": "5c946e665826169640485fff852a4cc24042fef0551699899324d3beb1b6b49b",
+      "data_hash_basis": "Author-supplied SSH inventory on 2026-09-25",
+      "declared_source": "Competition reference / MarLys aggregate",
+      "original_split_verified": false,
+      "training_link_status": "historical_declaration_only",
+      "original_run": null
+    },
+    {
+      "id": "activity",
+      "artifact": "checkpoint/reward/classifier.pt",
+      "artifact_sha256": "a4a1ed1184ad109bf0397b000d8f3fda1534feac360e9faef33fe3bc5c5e1d13",
+      "candidate_data": "data/processed/activity_labels.csv",
+      "candidate_data_sha256": "812bbd0bf3c00a49f50510d058a45be006363b6366529873e7375ecf7cdcef2d",
+      "data_hash_basis": "Previously committed provisional reconstruction protocol; panel/hemolysis also match author-supplied SSH inventory",
+      "declared_source": "DBAASP",
+      "original_split_verified": false,
+      "training_link_status": "reported_member_match_without_training_time_data_hash",
+      "original_run": "checkpoint/reward_binary_frozen",
+      "member": 2,
+      "recorded_seed": 44
+    },
+    {
+      "id": "panel",
+      "artifact": "checkpoint/reward/classifier_panel.pt",
+      "artifact_sha256": "7ce07cb7963ea3f20aff23a294c10b487f9596aa7f93b372d501ce60a3a5d268",
+      "candidate_data": "data/processed/activity_labels_full.csv",
+      "candidate_data_sha256": "5ba1c77d27d79aee451350cdf6a5c1b2c4b3554350fa226bc4a75e161935a748",
+      "data_hash_basis": "Previously committed provisional reconstruction protocol; panel/hemolysis also match author-supplied SSH inventory",
+      "declared_source": "DBAASP",
+      "original_split_verified": false,
+      "training_link_status": "reported_member_match_without_training_time_data_hash",
+      "original_run": "checkpoint/reward_panel_frozen",
+      "member": 1,
+      "recorded_seed": 43
+    },
+    {
+      "id": "hemolysis",
+      "artifact": "checkpoint/reward_hemo/classifier.pt",
+      "artifact_sha256": "ec48d490001b54f90d0e2f077b9ff3fa274234b003fdade932648dda9ce0ba7b",
+      "candidate_data": "data/processed/hemolysis_labels.csv",
+      "candidate_data_sha256": "fb654eddca32116a8fbdcff41803c8c2044bef10df3af68f6e5d7d784b312c7c",
+      "data_hash_basis": "Previously committed provisional reconstruction protocol; panel/hemolysis also match author-supplied SSH inventory",
+      "declared_source": "DBAASP",
+      "original_split_verified": false,
+      "training_link_status": "reported_member_match_without_training_time_data_hash",
+      "original_run": "checkpoint/reward_hemo_frozen",
+      "member": 0,
+      "recorded_seed": 42
+    }
+  ],
+  "missing_evidence": [
+    "Original training-time input hashes linked to deployed checkpoint hashes",
+    "Original split membership and training backbone revisions",
+    "Complete source membership of the actual generator CSV"
+  ],
+  "private_data_declaration": "Author confirmed no private training data on 2026-09-24; not an automated certification"
+}

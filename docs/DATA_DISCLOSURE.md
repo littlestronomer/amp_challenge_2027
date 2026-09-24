@@ -14,6 +14,16 @@ training snapshot is included in this checkout or may be redistributed. Verify
 each artifact's actual input hashes and applicable source terms before treating
 the repository as a complete public data release.
 
+The [lineage ledger](release/TRAINING_LINEAGE.json) pins the deployed models and
+candidate CSV hashes; [training provenance](TRAINING_PROVENANCE.md) distinguishes
+those identities from missing historical training links. Current primary-source
+terms and acknowledgements are in [third-party notices](THIRD_PARTY_NOTICES.md).
+
+MarLys version 3 lists 13 upstream databases, including DRAMP and DBAASP. Their
+membership in the actual training subset needs reconciliation using the CSV's
+source annotations. “Development-only DRAMP” below means the separate downloads,
+not an assertion that the generator has no indirectly DRAMP-derived sequences.
+
 ## Final-stack training data
 
 Author declaration (2026-09-24): no private training data were used. The author
@@ -38,12 +48,12 @@ enforce the emission rules.
 
 | data | used for | source & license |
 |---|---|---|
-| DRAMP 3.0 splits (general/antibacterial/anti-Gram±, FASTA) | expanded-corpus experiment (null result, recorded); Gram-membership label exploration | **DRAMP 3.0**, CC BY 4.0; Kang et al., *Sci Data* 6:170 (2019); retrieved 2026-08-27 via `download.php` |
+| Separate DRAMP splits (general/antibacterial/anti-Gram±, FASTA) | expanded-corpus experiment (null result, recorded); Gram-membership label exploration | CC BY 4.0; URLs use `DRAMP3.0_new`; cite Shi et al., DOI 10.1093/nar/gkab651 for DRAMP 3.0. Retrieved 2026-08-27; URL names do not certify a frozen database version. |
 | DRAMP `general_amps.xlsx` (activity text) | MIC-clause extraction experiments (converter kept, output unused by final models) | as above |
 | DBAASP hemolysis rows (23k) | safety audit of the top-100 (head deployed at weight 0) | DBAASP v4 (as above) |
 
 DRAMP SHA-256 (transcribed from the author's SSH `data/raw/sources.json`,
-2026-09-24; actual raw-file bytes still require verification on SSH):
+2026-09-24; the author supplied a successful raw-file hash/size audit on 2026-09-25):
 `antibacterial_amps.fasta` a0d484eb6176e123298d19d06f23ccc6398a1f5c75d169cccbbf7590a6e6c835;
 `general_amps.fasta` 5915e91b3501c41a914a05403dfd2a435af59116ffb738a8423d34995a2b9c26;
 `anti_gram_negative.fasta` 3c1b5d0fb323baf6d6c0d8d8164d8b35b3bbc41c9296b0665894f99fb4f12c41;
@@ -51,7 +61,7 @@ DRAMP SHA-256 (transcribed from the author's SSH `data/raw/sources.json`,
 
 The general and anti-Gram-negative hashes above correct differences between the
 previous disclosure and the supplied manifest; this is a transcription correction,
-not an independent validation. `scripts/audit_authorship_readiness.py` checks
+followed by the reported SSH audit, not an independent local validation. `scripts/audit_authorship_readiness.py` checks
 manifest hashes and sizes against local raw files. The download registry is
 written by the DRAMP fetch path; its lack of MarLys/DBAASP entries does not prove
 those datasets were unused. Processed-file hashes alone also cannot establish
@@ -72,6 +82,9 @@ but complete snapshot-to-checkpoint provenance has not been recovered. Label con
 canonical corpora are hash-frozen by `scripts/rebuild_corpus.py`. `uv run
 generate` (defaults, seed 42) reproduces the submitted library and top-100
 byte-for-byte in historical reported checks (see PHASE1_RESULTS.md).
-These historical checks do not certify the final release commit. Current
-release gaps and snapshot reconciliation are tracked in
-`docs/AUTHORSHIP_READINESS.md`; no claim of complete authorship eligibility is made.
+On 2026-09-25, the author supplied a fresh-clone validator pass at commit
+`be3aecae7cdde9bc898337c3b282d3fa4714457f` and matching library/top hashes against
+the frozen candidate. This is recorded in `docs/release/BASELINE.json` with
+evidence attribution. Training-data lineage remains incomplete; release gaps
+are tracked in `docs/RELEASE_CANDIDATE.md`. No claim of complete authorship
+eligibility is made.

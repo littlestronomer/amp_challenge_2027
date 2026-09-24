@@ -1,5 +1,16 @@
 # Competition status
 
+## 2026-09-25 release evidence
+
+Author-supplied SSH output reports default fresh-clone validation and two-run
+byte equality at `be3aecae7cdde9bc898337c3b282d3fa4714457f`. Library and top hashes
+also match the frozen competition-readiness candidate. All inventoried release
+files match Git; four DRAMP downloads match their recorded hashes/sizes.
+See `release/BASELINE.json` and `RELEASE_CANDIDATE.md`. These results close the
+metadata and reported reproducibility gaps for that baseline, not historical
+training lineage or biological validation. GitHub remains private as checked
+on 2026-09-25. Entries below retain their historical evidence dates.
+
 ## 2026-09-24 correction: constrained selector and release eligibility
 
 The initial constrained selector accidentally reused a dense risk row for its

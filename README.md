@@ -7,6 +7,10 @@
 See the [method abstract](docs/ABSTRACT.md),
 [training-data disclosure](docs/DATA_DISCLOSURE.md), and
 [authorship release audit](docs/AUTHORSHIP_READINESS.md).
+The [release candidate](docs/RELEASE_CANDIDATE.md) records the validated commit
+and FASTA hashes. See [training provenance](docs/TRAINING_PROVENANCE.md) for
+snapshot evidence and unresolved links, and [third-party notices](docs/THIRD_PARTY_NOTICES.md)
+for source attribution. Citation metadata is in [CITATION.cff](CITATION.cff).
 The [repaired selector runbook](docs/RUNBOOK_CONSTRAINED_SELECTIVITY.md)
 describes the frozen-pool experiment and invalidates earlier faulty solver results.
 
@@ -43,6 +47,23 @@ Generated sequences must:
 The full 50,000-sequence library must additionally contain no sequences identical to known antibacterial peptides in `data/antibacterial.fasta`. The top-100 list is held to a stricter standard: no sequence may exceed 80% sequence identity (Levenshtein ratio) with any sequence in that reference set.
 
 ## Getting Started
+
+To run this trained submission, clone the candidate branch and run its default
+entry point (GPU 1 example):
+
+```bash
+git clone --branch feat/nway-blend-multiaxis-conditioning \
+  https://github.com/littlestronomer/amp_challenge_2027.git
+cd amp_challenge_2027
+uv sync
+CUDA_VISIBLE_DEVICES=1 uv run --no-sync generate
+```
+
+The repository is currently private, so access requires authorization until
+publication. The branch is being prepared for promotion to `main`; the validated
+baseline and release status are documented above. Outputs are `generate/library.fasta`
+and `generate/top.fasta`. The following starter-template instructions are retained
+for developing a separate submission, rather than running these supplied weights.
 
 This repository also serves as a working example — see [src/amp_challenge_2027/generate.py](src/amp_challenge_2027/generate.py) for a complete implementation that meets all requirements.
 

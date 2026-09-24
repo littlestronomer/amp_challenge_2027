@@ -25,16 +25,17 @@ aggregation score or evidence of experimental activity. The training corpus
 coincides with the competition reference corpus. Submission filters enforce the
 competition's sequence overlap and top-candidate similarity limits.
 
-Historical records report a successful cold-clone, two-run reproducibility and
-submission-format validation on 2026-09-05. A current strict release validation
-and source-artifact audit are pending. The deployed activity heads were trained
+The author supplied a successful fresh-clone, two-run default validation at
+commit be3aecae7cdde9bc898337c3b282d3fa4714457f on 2026-09-25, with output hashes
+matching the frozen library and top 100. The deployed activity heads are declared trained
 from DBAASP-derived measurements; their validation splits, family overlap,
 calibration and label provenance are described in the audit records. Those
 results do not establish performance on unseen peptide families or on the
 selected generated peptides. Hemolysis is not used in the default ranking
 recipe, and no safety conclusion is made here.
 
-Complete source and license details are in `docs/DATA_DISCLOSURE.md`. Historical
+Declared source details and remaining provenance gaps are in
+`docs/DATA_DISCLOSURE.md` and `docs/TRAINING_PROVENANCE.md`. Historical
 experiments, including negative and superseded results, are retained in
 `PHASE1_RESULTS.md`. Numerical results should be quoted together with the
 corresponding model artifact, population, split and protocol from their source
