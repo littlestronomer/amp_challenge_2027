@@ -4,9 +4,10 @@ Declared accounting of data sources used to build the submitted
 artifacts, per the competition's full-track disclosure requirement. Sources
 split into **final-stack** (data that trained the shipped models) and
 **development-only** (used in experiments/selections recorded in
-PHASE1_RESULTS.md but not in the shipped training paths). Provenance
-hashes live in `data/raw/sources.json` on the training machine; DRAMP
-SHA-256 values are quoted below.
+PHASE1_RESULTS.md but not in the shipped training paths). The SSH
+`data/raw/sources.json` supplied by the author on 2026-09-24 records only
+four DRAMP downloads. It is not a complete provenance registry for the
+deployed models. Reported DRAMP SHA-256 values are quoted below.
 
 This disclosure records declared provenance; it does not mean that every
 training snapshot is included in this checkout or may be redistributed. Verify
@@ -41,11 +42,20 @@ enforce the emission rules.
 | DRAMP `general_amps.xlsx` (activity text) | MIC-clause extraction experiments (converter kept, output unused by final models) | as above |
 | DBAASP hemolysis rows (23k) | safety audit of the top-100 (head deployed at weight 0) | DBAASP v4 (as above) |
 
-DRAMP SHA-256 (from `data/raw/sources.json`):
+DRAMP SHA-256 (transcribed from the author's SSH `data/raw/sources.json`,
+2026-09-24; actual raw-file bytes still require verification on SSH):
 `antibacterial_amps.fasta` a0d484eb6176e123298d19d06f23ccc6398a1f5c75d169cccbbf7590a6e6c835;
-`general_amps.fasta` 5915e91b3501c41a914a05403dfd2a435af59116ffb738a8423d34995b2b9c26;
-`anti_gram_negative.fasta` 3c1b5d0fb323baf6d6c0d8d8164d8b35b3bbc41c9296b066584f99fb4f12c41;
+`general_amps.fasta` 5915e91b3501c41a914a05403dfd2a435af59116ffb738a8423d34995a2b9c26;
+`anti_gram_negative.fasta` 3c1b5d0fb323baf6d6c0d8d8164d8b35b3bbc41c9296b0665894f99fb4f12c41;
 `anti_gram_positive.fasta` 348cada15ae82f593af683ee395b35bc61df81dddfcc7041f8118838bacee8e0.
+
+The general and anti-Gram-negative hashes above correct differences between the
+previous disclosure and the supplied manifest; this is a transcription correction,
+not an independent validation. `scripts/audit_authorship_readiness.py` checks
+manifest hashes and sizes against local raw files. The download registry is
+written by the DRAMP fetch path; its lack of MarLys/DBAASP entries does not prove
+those datasets were unused. Processed-file hashes alone also cannot establish
+which snapshot trained each checkpoint.
 
 ## Pretrained components
 
@@ -56,8 +66,8 @@ DRAMP SHA-256 (from `data/raw/sources.json`):
 
 ## Reproducibility statement
 
-All fetches are scripted (`scripts/fetch_data.py`, `scripts/fetch_dbaasp_v4.py`)
-with recorded provenance; all label construction is scripted and tested
+Fetch implementations exist (`scripts/fetch_data.py`, `scripts/fetch_dbaasp_v4.py`),
+but complete snapshot-to-checkpoint provenance has not been recovered. Label construction is scripted and tested
 (`scripts/build_ranking_labels.py`, `scripts/build_hemolysis_labels.py`);
 canonical corpora are hash-frozen by `scripts/rebuild_corpus.py`. `uv run
 generate` (defaults, seed 42) reproduces the submitted library and top-100

@@ -27,7 +27,7 @@ See the organizers' current rules when submitting; no publication guarantee is i
 | Author and method documentation | Identity file, abstract, data disclosure, README | Confirm name spelling/affiliation and any additional contributors before submission. |
 | Permissive code license | BSD-3-Clause present, retaining upstream copyright | Preserve third-party notices; source data rights are separate from code licensing. |
 | Weights | Both generators, activity/panel/hemolysis weights are Git-tracked | Compare SSH artifact hashes against the committed release. |
-| Predictor metadata | Three per-head config files are absent in this local checkout and committed tree | Retrieve the verified SSH files and reconcile with frozen-head audit. Do not synthesize temperatures or change layer metadata to pass a check. |
+| Predictor metadata | Three per-head configs transcribed from the author's SSH output; inference fields match the registry for the actual committed checkpoint hashes | Preserve SSH originals before pulling; compare JSON values afterwards. Historical `val_auroc` values are retained as supplied, not independently revalidated. |
 | Default reproducibility | Entry point, Python version, lockfile and two-run validator exist; historical SSH repeatability was reported | Cold clone the exact final commit, run plain `uv sync` and default generation twice, compare to the submitted library/top bytes. |
 | Training data disclosure | MarLys and DBAASP declared for deployed stack; DRAMP declared development-only; author confirms no private data | Reconcile original training files, splits and checkpoint hashes. Source records are absent locally and ignored by Git. The full public-source inventory is not yet confirmed. |
 | Submission/admission | No receipt or organizer decision supplied | Submit once the release is checked and retain the receipt. Do not submit repeated entries for the same model contrary to competition rules. |
@@ -47,6 +47,11 @@ See the organizers' current rules when submitting; no publication guarantee is i
 - ESM backbones: pretrained public components; include model identifiers/revisions
   and their licenses in the final disclosure.
 
+The supplied SSH download manifest lists four DRAMP files only. The source
+fetcher records DRAMP downloads there; the list is not an exhaustive training
+inventory. The audit checks their actual hashes/sizes and inventories the
+processed training-file hashes, without claiming they identify checkpoint inputs.
+
 `docs/DATA_DISCLOSURE.md` is a lineage declaration, not proof that each checkpoint
 used exactly those files. Do not relicense downloaded public databases under the
 repository BSD license. Verify their terms and document access/reconstruction;
@@ -57,8 +62,8 @@ release requirement.
 
 ```bash
 uv run --no-sync python scripts/audit_authorship_readiness.py \
-  --out sweep_results/authorship-readiness-v1
-cat sweep_results/authorship-readiness-v1/REPORT.md
+  --out sweep_results/authorship-readiness-v2
+cat sweep_results/authorship-readiness-v2/REPORT.md
 ```
 
 If `gh` is installed/authenticated, optionally add
@@ -66,9 +71,11 @@ If `gh` is installed/authenticated, optionally add
 Use a new output directory after changes. The audit only inventories files; it
 does not upload data, publish the repository, or certify biological performance.
 
-Before public release, recover the three missing predictor config files listed
-in the audit and inspect their diff together with checkpoint hashes. Fresh-clone
-validation should wait until those files are committed and pushed.
+The SSH copies of the three predictor configs were previously untracked. Back
+them up outside `checkpoint/` before pulling the revision that adds them, then
+compare parsed JSON to the committed files. Do not overwrite historical cache
+hashes if whitespace changes the metadata-file bytes. Fresh-clone validation
+must use the revision containing those configs.
 
 ## Final release verification (after resolving artifact gaps)
 

@@ -1,0 +1,21 @@
+{
+  "esm_model": "facebook/esm2_t12_35M_UR50D",
+  "unfreeze_layers": 0,
+  "type": "panel_activity_classifier",
+  "task": "panel",
+  "checkpoint_format": "head-only",
+  "temperature": 0.92,
+  "val_auroc": 0.7995,
+  "genera": [
+    "A. baumannii",
+    "E. cloacae",
+    "E. coli",
+    "K. pneumoniae",
+    "P. aeruginosa",
+    "S. enterica",
+    "B. subtilis",
+    "S. aureus",
+    "E. faecalis",
+    "E. faecium"
+  ]
+}

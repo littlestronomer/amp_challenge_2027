@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -40,6 +41,41 @@ DATA_FILES = [
     "data/processed/activity_labels_full.csv",
     "data/processed/hemolysis_labels.csv",
 ]
+
+
+def source_inventory(root: Path) -> dict:
+    """Check declared downloads locally; matching bytes do not prove training use."""
+    raw = (root / "data/raw").resolve()
+    manifest = raw / "sources.json"
+    if not manifest.is_file():
+        return {"status": "missing", "entries": []}
+    try:
+        records = json.loads(manifest.read_text())
+        if not isinstance(records, dict):
+            raise ValueError("Expected a JSON object")
+    except (ValueError, OSError) as exc:
+        return {"status": "invalid", "reason": str(exc), "entries": []}
+    entries = []
+    for name, declared in sorted(records.items()):
+        row = {"path": name, "status": "invalid", "declared": declared}
+        path = (raw / name).resolve()
+        if Path(name).is_absolute() or not path.is_relative_to(raw):
+            row["reason"] = "Source path escapes data/raw"
+        elif not isinstance(declared, dict) or not re.fullmatch(
+            r"[0-9a-fA-F]{64}", str(declared.get("sha256", ""))
+        ) or type(declared.get("size_bytes")) is not int or declared["size_bytes"] < 0:
+            row["reason"] = "Missing or malformed SHA-256/size declaration"
+        elif not path.is_file():
+            row["status"] = "missing"
+        else:
+            row["actual_sha256"] = sha256(path)
+            row["actual_bytes"] = path.stat().st_size
+            row["status"] = (
+                "verified" if row["actual_sha256"] == declared["sha256"].lower()
+                and row["actual_bytes"] == declared["size_bytes"] else "mismatch"
+            )
+        entries.append(row)
+    return {"status": "parsed", "entries": entries, "training_lineage": "not_verified"}
 
 
 def inventory(root: Path, names: list[str]) -> list[dict]:
@@ -87,6 +123,7 @@ def run(root: Path, out: Path, github_repo: str | None = None) -> dict:
     ).strip()
     artifacts = inventory(root, RELEASE_FILES)
     data = inventory(root, DATA_FILES)
+    sources = source_inventory(root)
     visibility = {"status": "unknown", "reason": "Use --github-repo to inspect GitHub visibility"}
     if github_repo:
         try:
@@ -104,6 +141,12 @@ def run(root: Path, out: Path, github_repo: str | None = None) -> dict:
         for r in artifacts
         if not (r["present"] and r["committed"] and r["matches_commit"])
     ]
+    if sources["status"] != "parsed":
+        gaps.append(f"Download source manifest: {sources['status']}")
+    gaps.extend(
+        f"Download source {row['status']}: {row['path']}"
+        for row in sources["entries"] if row["status"] != "verified"
+    )
     if visibility.get("isPrivate"):
         gaps.append("Repository is private: full co-authorship requirements require public access")
     if visibility.get("defaultBranchRef", {}).get("name") not in (None, branch):
@@ -120,12 +163,13 @@ def run(root: Path, out: Path, github_repo: str | None = None) -> dict:
         ]
     )
     result = {
-        "kind": "authorship_readiness_inventory_v1",
+        "kind": "authorship_readiness_inventory_v2",
         "commit": commit,
         "branch": branch,
         "github": visibility,
         "release_files": artifacts,
         "data_inventory": data,
+        "download_sources": sources,
         "gaps": gaps,
         "eligibility": "not_certified",
     }
@@ -149,7 +193,18 @@ def run(root: Path, out: Path, github_repo: str | None = None) -> dict:
     lines += ["", "## Training-source records available on this machine", ""]
     lines += [
         f"- `{r['path']}`: {'present' if r['present'] else 'not found at declared path'}"
+        + (f"; SHA-256 `{r['sha256']}`; {r['bytes']} bytes" if r['present'] else "")
         for r in data
+    ]
+    lines += ["", "## Download manifest verification", "",
+              "This registry may be incomplete. Matching hashes establish file integrity, "
+              "not training use, license approval, or checkpoint lineage.", "",
+              f"Manifest status: {sources['status']}.", ""]
+    lines += [
+        f"- `{r['path']}`: {r['status']}"
+        + (f"; actual SHA-256 `{r['actual_sha256']}`" if 'actual_sha256' in r else "")
+        + (f"; {r['reason']}" if 'reason' in r else "")
+        for r in sources["entries"]
     ]
     (out / "REPORT.md").write_text("\n".join(lines) + "\n")
     mark_files(out, "complete.json", ["run.json", "audit.json", "REPORT.md"])
