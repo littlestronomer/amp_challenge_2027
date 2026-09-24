@@ -1,0 +1,17 @@
+{
+  "submission_name": "littlestronomer",
+  "team_name_basis": "User's online name, used as provisional submission name",
+  "authors": [
+    {
+      "name": "Göktürk Batın Dervişoğlu",
+      "email": "dervisoglu21@itu.edu.tr",
+      "corresponding_author": true,
+      "affiliation": null,
+      "orcid": null
+    }
+  ],
+  "affiliation_status": "Not supplied; do not infer from email domain",
+  "nonpublic_training_data_status": "Author confirmed on 2026-09-24 that no private data were used",
+  "public_dataset_inventory_status": "Author cannot confirm that the declared public sources are exhaustive; reconcile SSH training snapshots",
+  "organizer_authorship_confirmation": null
+}

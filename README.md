@@ -2,6 +2,14 @@
 
 > International competition for generative AI in antimicrobial peptide design.
 
+**Submission: littlestronomer — Göktürk Batın Dervişoğlu**
+([dervisoglu21@itu.edu.tr](mailto:dervisoglu21@itu.edu.tr)).
+See the [method abstract](docs/ABSTRACT.md),
+[training-data disclosure](docs/DATA_DISCLOSURE.md), and
+[authorship release audit](docs/AUTHORSHIP_READINESS.md).
+The [repaired selector runbook](docs/RUNBOOK_CONSTRAINED_SELECTIVITY.md)
+describes the frozen-pool experiment and invalidates earlier faulty solver results.
+
 Antimicrobial resistance is one of the most pressing global health challenges. This competition invites participants to develop generative models that design novel antimicrobial peptides (AMPs) with activity against a panel of clinically relevant bacterial strains, including multi-drug resistant ESKAPE pathogens.
 
 ## Submission Requirements

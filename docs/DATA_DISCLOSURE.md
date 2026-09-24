@@ -1,6 +1,6 @@
 # Training-Data Disclosure
 
-Complete accounting of every data source used to build the submitted
+Declared accounting of data sources used to build the submitted
 artifacts, per the competition's full-track disclosure requirement. Sources
 split into **final-stack** (data that trained the shipped models) and
 **development-only** (used in experiments/selections recorded in
@@ -14,6 +14,10 @@ each artifact's actual input hashes and applicable source terms before treating
 the repository as a complete public data release.
 
 ## Final-stack training data
+
+Author declaration (2026-09-24): no private training data were used. The author
+has not confirmed that the public sources listed below are exhaustive. Recover
+the actual SSH snapshots and source records before signing off the full disclosure.
 
 | artifact trained | data | source & license | retrieved |
 |---|---|---|---|
@@ -57,4 +61,7 @@ with recorded provenance; all label construction is scripted and tested
 (`scripts/build_ranking_labels.py`, `scripts/build_hemolysis_labels.py`);
 canonical corpora are hash-frozen by `scripts/rebuild_corpus.py`. `uv run
 generate` (defaults, seed 42) reproduces the submitted library and top-100
-byte-for-byte (verified; see PHASE1_RESULTS.md).
+byte-for-byte in historical reported checks (see PHASE1_RESULTS.md).
+These historical checks do not certify the final release commit. Current
+release gaps and snapshot reconciliation are tracked in
+`docs/AUTHORSHIP_READINESS.md`; no claim of complete authorship eligibility is made.

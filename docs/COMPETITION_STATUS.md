@@ -1,5 +1,19 @@
 # Competition status
 
+## 2026-09-24 correction: constrained selector and release eligibility
+
+The initial constrained selector accidentally reused a dense risk row for its
+first pairwise constraint. All prior constrained-selection infeasibility claims
+are withdrawn, including the strict risk ceilings. Incumbent fallback demonstrated
+baseline feasibility only; it did not show reranking is exhausted. Use the
+repaired selector runbook and fresh output directories. Generator/ranker
+promotion is not supported by those earlier results.
+
+GitHub visibility was checked: repository private; default branch `main`.
+Co-authorship eligibility is not yet established. See `AUTHORSHIP_READINESS.md`
+for missing predictor metadata, data provenance and final-clone validation steps.
+The historical assessment below remains a record of its stated evidence date.
+
 Updated 2026-09-21 from repository inspection and SSH observations pasted by the
 user. Remote measurements below are reported evidence, not artifacts independently
 verified in this checkout. Use `experiments/competition_evidence_v2.json` to

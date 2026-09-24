@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Autoregressive generative model for antimicrobial peptide design (AMP Challenge 2027)"
 readme = "README.md"
 authors = [
-    { name = "your name", email = "username@domain.com" }
+    { name = "Göktürk Batın Dervişoğlu", email = "dervisoglu21@itu.edu.tr" }
 ]
 
 requires-python = ">=3.10,<3.13"
