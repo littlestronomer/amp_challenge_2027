@@ -139,6 +139,10 @@ To submit, head to the Kaggle competition page: https://www.kaggle.com/competiti
 
 ## Validation
 
+For measured-assay conditional generation, versioned AttnRes/MoE architecture
+experiments, dataset snapshots and GPU 1 commands, see
+[the conditional generator runbook](docs/RUNBOOK_CONDITIONAL_GENERATOR.md).
+
 For controlled generator checkpoint and 50k-library selection experiments on
 the SSH training machine, see [the generator experiment runbook](docs/RUNBOOK_GENERATOR_EXPERIMENTS.md).
 For fixed-ratio epoch-58 + charge-conditioned blends using saved pools, see

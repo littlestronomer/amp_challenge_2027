@@ -32,7 +32,7 @@ def test_unit_conversion_table():
     assert convert_to_um(100.0, "µM", mw)[0] == 100.0
     assert convert_to_um(1000.0, "nM", mw)[0] == pytest.approx(1.0)
     assert convert_to_um(1000.0, "pmol/ml", mw)[0] == pytest.approx(1.0)  # pmol/ml == nM
-    assert convert_to_um(1.0, "nmol/ml", mw)[0] == pytest.approx(1000.0)  # nmol/ml == mM
+    assert convert_to_um(1.0, "nmol/ml", mw)[0] == pytest.approx(1.0)  # nmol/ml == µM
     val, _ = convert_to_um(10.0, "µg/ml", mw)
     assert val == pytest.approx(10.0 * 1000.0 / mw)
     val2, _ = convert_to_um(1000.0, "ng/ml", mw)

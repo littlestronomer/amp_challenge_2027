@@ -18,7 +18,7 @@ classifier gets per-genus evidence without DBAASP.
 Unit policy (everything normalized to µM):
   µg/ml family (µg|μg|ug|mg|ng per ml)  → via deterministic average-residue MW
   nM, pmol/ml (== nM)                    → /1000
-  µM family, nmol/ml (== mM)             → direct, ×1000
+  µM family, nmol/ml (== µM)             → direct
   AU/* (arbitrary units)                 → unusable, counted and skipped
 Ranges ("0.025-6.4") take the UPPER bound (conservative for activity bands);
 censoring (≤ ≥ < >) is dropped but the RAW clause is preserved in ``assay``.
@@ -152,7 +152,7 @@ def convert_to_um(value: float, unit: str, mw: float) -> tuple[float | None, str
     if u == "nM" or u == "pmol_ml":
         return value / 1000.0, ""
     if u == "nmol_ml":
-        return value * 1000.0, ""
+        return value, ""
     if u == "ug_ml":
         return value * 1000.0 / mw, ""
     if u == "ng_ml":

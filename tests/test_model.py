@@ -149,8 +149,13 @@ def test_forward_deterministic_attnres():
 # --- gradients --------------------------------------------------------------
 
 
-def test_gradients_flow_to_attnres_queries():
-    model, _ = build_model(_tiny_config(residual="attnres"))
+@pytest.mark.parametrize("seed", [42, 43, 44])
+def test_gradients_flow_to_attnres_queries(seed):
+    # Legacy v1 keeps duplicated block-input sources for checkpoint parity;
+    # identical sources can give exactly zero query gradients. Learning claims
+    # belong to corrected v2, which aggregates distinct sublayer deltas.
+    torch.manual_seed(seed)
+    model, _ = build_model(_tiny_config(residual="attnres", residual_impl_version=2))
     out = model(_ids())
     out.logits.sum().backward()
     assert model.attnres.queries.grad is not None
