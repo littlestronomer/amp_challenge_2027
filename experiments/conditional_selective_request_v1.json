@@ -1,0 +1,16 @@
+{
+  "description": "Exploratory E. coli MIC target and low human erythrocyte lysis at 64 micromolar. Targets are not output guarantees; inspect support warnings.",
+  "conditions": [
+    {
+      "endpoint": "MIC", "target": "E. coli", "operator": "<=",
+      "value_lower": null, "value_upper": 16.0, "unit": "µM",
+      "chemistry": "canonical_free_linear_L"
+    },
+    {
+      "endpoint": "%lysis", "target": "human erythrocytes", "rbc_species": "human erythrocytes",
+      "operator": "<=", "value_lower": null, "value_upper": 10.0, "unit": "%",
+      "dose_lower": 64.0, "dose_upper": 64.0, "dose_operator": "exact", "dose_unit": "µM",
+      "chemistry": "canonical_free_linear_L"
+    }
+  ]
+}
