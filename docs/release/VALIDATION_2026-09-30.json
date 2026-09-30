@@ -1,0 +1,62 @@
+{
+  "kind": "author_run_submission_validation_v1",
+  "date": "2026-09-30",
+  "validated_commit": "7a5b86bf11f43a207a2a2c7f2b9c0fd82c22169d",
+  "evidence_origin": "Author-run SSH validation; supplied terminal transcript and downloaded artifacts inspected on local workstation. GPU inference was not repeated locally.",
+  "default_two_run_validation_passed": true,
+  "strict_generation_complete": true,
+  "strict_default_fasta_byte_equality_reported": true,
+  "historical_baseline_hashes_match": true,
+  "downloaded_fasta_hashes_verified_locally": true,
+  "outputs": {
+    "library.fasta": "74f73e71e6d867083aede2cd773ec4761e0f2533edf7485416447d8023c4b84b",
+    "top.fasta": "eea9528d64e3d125f3639772239ccfc39fed25fb3746100670f0e27b58c08221"
+  },
+  "actual_scoring_components": [
+    "activity",
+    "breadth",
+    "conformity",
+    "mdr",
+    "precision"
+  ],
+  "runtime": {
+    "packages": {
+      "huggingface-hub": "1.27.0",
+      "levenshtein": "0.27.3",
+      "numpy": "2.4.3",
+      "torch": "2.11.0+cu128",
+      "transformers": "5.14.1"
+    },
+    "platform": "linux",
+    "python": "3.11.15"
+  },
+  "top100_audit": {
+    "library_count": 50000,
+    "top_count": 100,
+    "library_unique": true,
+    "library_valid": true,
+    "top_unique": true,
+    "top_membership_complete": true,
+    "exact_reference_overlap_count": 0,
+    "reference_similarity_max": 0.8,
+    "reference_similarity_threshold": 0.8,
+    "top_pairwise_near_identity_pairs_ge_0_8": 0,
+    "all_plausible": true,
+    "score_coverage_complete": true,
+    "synthesis_assessment": "not_assessed"
+  },
+  "evidence_sha256": {
+    "default-validation.log": "45a96307730c98b678c882972a5ab14989785150faf08c0bb3faa5c5a6c16135",
+    "strict-generation.log": "91b8e0b679209f73baa039122e7d0940bc0ef8f1ab34b5c7939c05e4b91c7f74",
+    "generation_manifest.json": "78810d2b8800775f24a7f65f373074a4f6214a5d240208a72adff883db6371e2",
+    "top_scores.csv": "96264c6c58daed03950e458abf89f751d26dd00434a6350201c6c2cc32523afd",
+    "top100/REPORT.md": "8b900af34d9dd585163bd9eacae65b514f18d58268216c142c1b28347241e95e",
+    "top100/summary.json": "13a0b87d8efc3b7e6f9783031f5099b0fd9005769c02a0bb98ff5ec22838f11a"
+  },
+  "limitations": [
+    "No biological efficacy, hemolysis safety or synthesis validation.",
+    "Historical training-input and split lineage remains incomplete; exhaustive public-source disclosure has not been confirmed.",
+    "Runtime portability beyond the tested environment is not guaranteed.",
+    "Kaggle submission was reported by the author; its live entry and receipt were not independently inspected."
+  ]
+}

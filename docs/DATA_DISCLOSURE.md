@@ -51,13 +51,20 @@ coincides with the MarLys training corpus (discussed as the in-sample
 framing in PHASE1_RESULTS.md); submission-side novelty/identity filters
 enforce the emission rules.
 
+DBAASP hemolysis measurements trained the separate classifier listed above:
+4,752 derived labels were used for this head. Earlier notes mention approximately
+23k raw rows; this is not an additional training corpus or the final label count.
+The head supports computational audits, and its predictions have zero weight in
+final selection. "Audit-only" describes use of the trained head, not absence of
+training on hemolysis labels. These labels were not a training objective for
+either generator.
+
 ## Development-only data (not in shipped training paths)
 
 | data | used for | source & license |
 |---|---|---|
 | Separate DRAMP splits (general/antibacterial/anti-Gram±, FASTA) | expanded-corpus experiment (null result, recorded); Gram-membership label exploration | CC BY 4.0; URLs use `DRAMP3.0_new`; cite Shi et al., DOI 10.1093/nar/gkab651 for DRAMP 3.0. Retrieved 2026-08-27; URL names do not certify a frozen database version. |
 | DRAMP `general_amps.xlsx` (activity text) | MIC-clause extraction experiments (converter kept, output unused by final models) | as above |
-| DBAASP hemolysis rows (23k) | safety audit of the top-100 (head deployed at weight 0) | DBAASP v4 (as above) |
 
 DRAMP SHA-256 (transcribed from the author's SSH `data/raw/sources.json`,
 2026-09-24; the author supplied a successful raw-file hash/size audit on 2026-09-25):
@@ -92,6 +99,11 @@ byte-for-byte in historical reported checks (see PHASE1_RESULTS.md).
 On 2026-09-25, the author supplied a fresh-clone validator pass at commit
 `be3aecae7cdde9bc898337c3b282d3fa4714457f` and matching library/top hashes against
 the frozen candidate. This is recorded in `docs/release/BASELINE.json` with
-evidence attribution. Training-data lineage remains incomplete; release gaps
-are tracked in `docs/RELEASE_CANDIDATE.md`. No claim of complete authorship
+evidence attribution. A further author-run SSH validation on 2026-09-30 at
+`7a5b86bf11f43a207a2a2c7f2b9c0fd82c22169d` passed two default runs and a strict run,
+with both FASTAs matching those historical hashes. The downloaded evidence and
+FASTA hashes were checked locally; see [the validation record](release/VALIDATION_2026-09-30.json).
+These inference checks do not resolve original training-input or split lineage.
+Release status and remaining disclosure gaps are tracked in
+[RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md). No claim of complete authorship
 eligibility is made.

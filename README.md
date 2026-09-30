@@ -49,22 +49,30 @@ The full 50,000-sequence library must additionally contain no sequences identica
 
 ## Getting Started
 
-To run this trained submission, clone the candidate branch and run its default
-entry point (GPU 1 example):
+To run this trained submission, clone the public default branch (`main`) and run
+its default entry point:
 
 ```bash
-git clone --branch feat/nway-blend-multiaxis-conditioning \
-  https://github.com/littlestronomer/amp_challenge_2027.git
+git clone https://github.com/littlestronomer/amp_challenge_2027.git
 cd amp_challenge_2027
 uv sync
-CUDA_VISIBLE_DEVICES=1 uv run --no-sync generate
+uv run generate
 ```
 
-The repository is currently private, so access requires authorization until
-publication. The branch is being prepared for promotion to `main`; the validated
-baseline and release status are documented above. Outputs are `generate/library.fasta`
-and `generate/top.fasta`. The following starter-template instructions are retained
-for developing a separate submission, rather than running these supplied weights.
+Outputs are `generate/library.fasta` and `generate/top.fasta`. The author validated
+revision `7a5b86bf11f43a207a2a2c7f2b9c0fd82c22169d` on 30 September 2026:
+two default runs and a strict run produced identical FASTAs matching the recorded
+submission hashes. `main` contains that implementation plus documentation updates;
+the newer research branch is not the submitted implementation. To reproduce the
+exact tested checkout, run `git checkout 7a5b86bf11f43a207a2a2c7f2b9c0fd82c22169d`
+before `uv sync`. See the [validation record](docs/release/VALIDATION_2026-09-30.json)
+and [release notes](docs/RELEASE_CANDIDATE.md) for evidence and limitations.
+The SSH run used physical GPU 1 via `CUDA_VISIBLE_DEVICES=1`; choose a suitable
+available GPU for your machine. Identical results across all environments are not
+guaranteed.
+
+The following starter-template instructions are retained for developing a
+separate submission, rather than running these supplied weights.
 
 This repository also serves as a working example — see [src/amp_challenge_2027/generate.py](src/amp_challenge_2027/generate.py) for a complete implementation that meets all requirements.
 

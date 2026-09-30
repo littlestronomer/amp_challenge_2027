@@ -5,7 +5,22 @@ Affiliation: Istanbul Technical University, supplied by the author on 2026-09-25
 Starter contributors retain their credit and copyright;
 Git commit authorship alone is not a proposed scientific author list.
 
-## Validated inference baseline
+## Validated submission revision
+
+Revision `7a5b86bf11f43a207a2a2c7f2b9c0fd82c22169d` passed the author's SSH
+fresh-clone validator on 2026-09-30. Two default runs passed sequence constraints,
+reference exclusion/similarity and byte equality. A third, strict generation run
+required all five intended scoring components and produced identical FASTAs.
+Both output hashes match the historical baseline below. Downloaded FASTAs,
+logs, manifest and audit were inspected locally; no GPU inference was repeated
+on the manuscript workstation. The compact [validation record](release/VALIDATION_2026-09-30.json)
+records attribution, artifact hashes and audit findings.
+
+`main` now contains this tested implementation and documentation updates. These
+updates do not modify inference code, weights, reference data, dependencies or
+default settings. The exact tested revision remains available by its full hash.
+
+## Historical inference baseline
 
 Commit `be3aecae7cdde9bc898337c3b282d3fa4714457f` on
 `feat/nway-blend-multiaxis-conditioning` passed the SSH fresh-clone default
@@ -52,19 +67,25 @@ FASTA hashes. The current generator CSV contains exactly the reference sequence
 set and annotations for all 13 upstream databases. Original training-time data
 and split linkage remains unverified and is explicitly disclosed.
 
-GitHub was checked on 2026-09-25: repository private; default branch `main`.
-The release candidate is the existing feature branch, proposed for review into
-`main`. Until that promotion, ordinary default-branch clones do not identify
-this validated candidate. Use the explicit branch or baseline commit for review.
+Authenticated GitHub checks on 2026-09-30 confirmed public visibility and `main`
+as the default branch after promotion of the validated revision. The author
+reported completing the Kaggle submission on the same date; the submitted entry
+and receipt have not been independently inspected.
 
-1. SSH collection is complete as reported; retain the historical-link limitations
-   unless contemporaneous training records are recovered.
-2. Author affiliation is supplied; review source attribution and release contents.
-3. Review the release PR before promoting the candidate to the default branch.
-4. Publish the reviewed repository and verify unauthenticated access to the
-   exact release branch/weights. Visibility has not been changed by preparation.
-5. Submit the hash-matched FASTAs and release reference, then retain the official
-   receipt. No competition submission or organizer message is sent by these tools.
+Remaining actions:
+
+1. Confirm that the public-source inventory is exhaustive and reconcile any
+   original training-input/split evidence that can be recovered. Inference
+   validation does not establish this provenance.
+2. Retain the Kaggle receipt and verify that the submitted FASTAs and revision
+   match the hashes above. Preserve the validation archive.
+3. Share the public repository link through the competition's Discussion forum
+   or a competition notebook, as required by the public-code-sharing provision
+   in the [Kaggle rules](https://www.kaggle.com/competitions/amp-challenge/rules).
+   No such post has been made by this documentation update.
+4. Respond to any organizer compliance requests. No further generation is
+   needed solely for these documentation corrections; changes to runtime files
+   require a new validation assessment.
 
 Public access and full data disclosure are among the organizers'
 [full co-authorship requirements](https://github.com/szczurek-lab/amp-challenge-2027#submission-requirements).

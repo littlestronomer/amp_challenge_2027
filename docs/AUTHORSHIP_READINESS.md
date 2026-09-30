@@ -1,6 +1,6 @@
 # littlestronomer: release and authorship readiness
 
-Audit date: 2026-09-25. Author: Göktürk Batın Dervişoğlu;
+Audit updated: 2026-09-30 (retaining historical evidence from 2026-09-25). Author: Göktürk Batın Dervişoğlu;
 correspondence: dervisoglu21@itu.edu.tr. Affiliation: Istanbul Technical University
 (supplied by the author on 2026-09-25).
 The author confirmed on 2026-09-24 that no private data were used, but could
@@ -23,15 +23,15 @@ See the organizers' current rules when submitting; no publication guarantee is i
 
 | Requirement | Evidence found | Remaining work |
 |---|---|---|
-| Public repository | Authenticated GitHub lookup on 2026-09-25 returned `isPrivate: true` | Review release contents, then explicitly approve public visibility before final submission. No visibility change was made. |
-| Release branch | GitHub default is `main`; current work is `feat/nway-blend-multiaxis-conditioning` | Validate and designate the branch/commit delivered to organizers; default-clone behavior matters. |
+| Public repository | Authenticated GitHub lookup on 2026-09-30 returned `visibility: PUBLIC` | Keep the submitted repository accessible. |
+| Release branch | Default `main` was advanced to validated revision `7a5b86b`; subsequent release fixes are documentation-only | Preserve the tested runtime; the research branch is not the submitted implementation. |
 | Author and method documentation | Identity file, abstract, data disclosure, README; author supplied Istanbul Technical University affiliation | Review the final author list before submission. |
 | Permissive code license | BSD-3-Clause present, retaining upstream copyright | Preserve third-party notices; source data rights are separate from code licensing. |
 | Weights | Both generators, activity/panel/hemolysis weights are Git-tracked | SSH audit confirms every listed weight/config matches HEAD; hashes are preserved in release/BASELINE.json. |
 | Predictor metadata | Three per-head configs transcribed from the author's SSH output; inference fields match the registry for the actual committed checkpoint hashes | SSH backup and semantic comparison succeeded; all three files match the originals. Historical `val_auroc` values are retained as supplied, not independently revalidated. |
-| Default reproducibility | Author reports fresh-clone default validator pass at be3aeca, two-run equality and exact frozen FASTA matches | Preserve this baseline; compare runtime hashes for subsequent release changes. |
+| Default reproducibility | Author-run SSH validation on 2026-09-30 at `7a5b86b`: two default runs plus strict generation, matching baseline FASTA hashes; downloaded evidence inspected locally | See [validation record](release/VALIDATION_2026-09-30.json); preserve the tested runtime. |
 | Training data disclosure | MarLys aggregate and DBAASP declared for deployed stack; separate DRAMP downloads declared development-only; author confirms no private data | Reconcile original training files, splits and checkpoint hashes. Source records are absent locally and ignored by Git. The full public-source inventory is not yet confirmed. |
-| Submission/admission | No receipt or organizer decision supplied | Submit once the release is checked and retain the receipt. Do not submit repeated entries for the same model contrary to competition rules. |
+| Submission/admission | Author reports Kaggle submission completed on 2026-09-30; live entry, receipt and organizer decision not inspected | Retain the receipt and verify attachments; eligibility and advancement remain organizer decisions. |
 
 ## Dataset trace
 
@@ -80,14 +80,16 @@ model copies and source annotations; historical training input/split linkage is
 still unverified. See [TRAINING_PROVENANCE.md](TRAINING_PROVENANCE.md) and the baseline and
 publication sequence in [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md).
 
-## Final release verification (after resolving artifact gaps)
+## Future verification after runtime changes
 
-On GPU 1, validate the intended branch in a new clone:
+The submitted runtime already passed the 2026-09-30 checks above. Documentation
+corrections alone do not require another GPU run. If runtime files change,
+validate the intended `main` revision in a new clone (GPU 1 example):
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 uv run --no-sync python scripts/verify_submission.py \
   https://github.com/littlestronomer/amp_challenge_2027 \
-  --branch feat/nway-blend-multiaxis-conditioning \
+  --branch main \
   --dir submission/release-default-v1
 ```
 
